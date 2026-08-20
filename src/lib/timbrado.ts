@@ -25,6 +25,12 @@ export type NuevaFacturaInput = {
   folio: string;
   formaPago: string;
   metodoPago: string;
+  condicionesDePago?: string;
+  receptorRfc: string;
+  receptorNombre: string;
+  receptorRegimenFiscal: string;
+  receptorDomicilioFiscal: string;
+  receptorUsoCfdi: string;
   conceptos: ConceptoInput[];
 };
 
@@ -182,6 +188,12 @@ function buildDatosJSON(input: NuevaFacturaInput) {
     };
   }
 
+  // InformacionGlobal solo aplica al RFC generico de Publico en General -
+  // para un receptor real (con su propio RFC) el SAT rechaza el CFDI si
+  // este nodo esta presente.
+  const esPublicoGeneral = input.receptorRfc === RECEPTOR_PUBLICO_GENERAL.Rfc;
+  const condicionesDePago = input.condicionesDePago?.trim() ?? "";
+
   return {
     Version: "4.0",
     Serie: input.serie,
@@ -191,10 +203,12 @@ function buildDatosJSON(input: NuevaFacturaInput) {
     // clase JSON_CFDI40 los sobreescribe ella misma en sellarXML(). En
     // cambio CondicionesDePago NO se toca despues - si se manda como
     // string vacio viola el patron del schema SAT (atributo opcional que,
-    // si esta presente, no puede estar vacio) y produce "XML mal formado".
+    // si esta presente, no puede estar vacio) y produce "XML mal formado" -
+    // por eso se omite por completo cuando el usuario no lo captura.
     Sello: "",
     NoCertificado: "",
     Certificado: "",
+    ...(condicionesDePago ? { CondicionesDePago: condicionesDePago } : {}),
     SubTotal: subTotal.toFixed(2),
     Descuento: "0.00",
     Moneda: "MXN",
@@ -212,23 +226,30 @@ function buildDatosJSON(input: NuevaFacturaInput) {
     // distinto produce "XML mal formado" aunque el JSON en si sea valido.
     // InformacionGlobal es obligatorio por regla del SAT (CFDI 4.0) cuando
     // el receptor es "Publico en General" (XAXX010101000), incluso para una
-    // sola factura (no solo para el resumen periodico "factura global").
-    InformacionGlobal: {
-      Periodicidad: "01",
-      Meses: fechaISO.slice(5, 7),
-      Año: fechaISO.slice(0, 4),
-    },
+    // sola factura (no solo para el resumen periodico "factura global") -
+    // y debe OMITIRSE cuando el receptor es real (RFC especifico).
+    ...(esPublicoGeneral
+      ? {
+          InformacionGlobal: {
+            Periodicidad: "01",
+            Meses: fechaISO.slice(5, 7),
+            Año: fechaISO.slice(0, 4),
+          },
+        }
+      : {}),
     Emisor: {
       Rfc: input.rfcEmisor,
       Nombre: input.nombreEmisor,
       RegimenFiscal: input.regimenEmisor,
     },
     Receptor: {
-      Rfc: RECEPTOR_PUBLICO_GENERAL.Rfc,
-      Nombre: RECEPTOR_PUBLICO_GENERAL.Nombre,
-      DomicilioFiscalReceptor: input.lugarExpedicion,
-      RegimenFiscalReceptor: RECEPTOR_PUBLICO_GENERAL.RegimenFiscalReceptor,
-      UsoCFDI: RECEPTOR_PUBLICO_GENERAL.UsoCFDI,
+      Rfc: input.receptorRfc,
+      Nombre: input.receptorNombre,
+      // Para Publico en General el SAT exige que sea el CP del propio
+      // emisor; para un receptor real es su domicilio fiscal capturado.
+      DomicilioFiscalReceptor: esPublicoGeneral ? input.lugarExpedicion : input.receptorDomicilioFiscal,
+      RegimenFiscalReceptor: input.receptorRegimenFiscal,
+      UsoCFDI: input.receptorUsoCfdi,
     },
     Conceptos: { Concepto: conceptosJSON },
     Impuestos: impuestosGlobal,

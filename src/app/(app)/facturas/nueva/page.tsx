@@ -4,9 +4,21 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Emisor } from "@/lib/emisores";
 import type { Serie } from "@/lib/series";
+import type { Receptor } from "@/lib/receptores";
 import type { ConceptoInput, TimbrarResult } from "@/lib/timbrado";
-import { FORMAS_PAGO, METODOS_PAGO } from "@/lib/catalogosSat";
+import { FORMAS_PAGO, METODOS_PAGO, RECEPTOR_PUBLICO_GENERAL, USOS_CFDI } from "@/lib/catalogosSat";
 import { ConceptoRow } from "@/components/facturas/ConceptoRow";
+import { ReceptorFormModal } from "@/components/receptores/ReceptorFormModal";
+
+const RFC_PUBLICO_GENERAL = RECEPTOR_PUBLICO_GENERAL.Rfc;
+
+const RECEPTOR_PUBLICO_GENERAL_COMO_RECEPTOR: Receptor = {
+  Rfc: RECEPTOR_PUBLICO_GENERAL.Rfc,
+  Nombre: RECEPTOR_PUBLICO_GENERAL.Nombre,
+  RegimenFiscal: RECEPTOR_PUBLICO_GENERAL.RegimenFiscalReceptor,
+  DomicilioFiscal: "",
+  UsoCfdi: RECEPTOR_PUBLICO_GENERAL.UsoCFDI,
+};
 
 const CONCEPTO_VACIO: ConceptoInput = {
   descripcion: "",
@@ -31,6 +43,11 @@ export default function NuevaFacturaPage() {
   const [folio, setFolio] = useState<string | null>(null);
   const [formaPago, setFormaPago] = useState("01");
   const [metodoPago, setMetodoPago] = useState("PUE");
+  const [condicionesDePago, setCondicionesDePago] = useState("");
+  const [receptores, setReceptores] = useState<Receptor[]>([]);
+  const [rfcReceptorSeleccionado, setRfcReceptorSeleccionado] = useState(RFC_PUBLICO_GENERAL);
+  const [usoCfdiSeleccionado, setUsoCfdiSeleccionado] = useState(RECEPTOR_PUBLICO_GENERAL.UsoCFDI);
+  const [modalReceptorAbierto, setModalReceptorAbierto] = useState(false);
   const [conceptos, setConceptos] = useState<ConceptoInput[]>([{ ...CONCEPTO_VACIO }]);
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -60,6 +77,23 @@ export default function NuevaFacturaPage() {
         setSerieSeleccionada(ingreso.length > 0 ? ingreso[0].Nombre : "");
       });
   }, [rfcEmisor]);
+
+  useEffect(() => {
+    if (!rfcEmisor) return;
+    fetch(`/api/empresas/${encodeURIComponent(rfcEmisor)}/receptores`)
+      .then((res) => res.json())
+      .then((body) => {
+        setReceptores(body.receptores ?? []);
+        setRfcReceptorSeleccionado(RFC_PUBLICO_GENERAL);
+        setUsoCfdiSeleccionado(RECEPTOR_PUBLICO_GENERAL.UsoCFDI);
+      });
+  }, [rfcEmisor]);
+
+  const receptorSeleccionado =
+    rfcReceptorSeleccionado === RFC_PUBLICO_GENERAL
+      ? RECEPTOR_PUBLICO_GENERAL_COMO_RECEPTOR
+      : (receptores.find((r) => r.Rfc === rfcReceptorSeleccionado) ??
+        RECEPTOR_PUBLICO_GENERAL_COMO_RECEPTOR);
 
   useEffect(() => {
     if (!rfcEmisor || !serieSeleccionada) return;
@@ -93,6 +127,15 @@ export default function NuevaFacturaPage() {
       total: subtotal + impuestos - retenciones,
     };
   }, [conceptos]);
+
+  function handleSeleccionarReceptor(rfc: string) {
+    setRfcReceptorSeleccionado(rfc);
+    const receptor =
+      rfc === RFC_PUBLICO_GENERAL
+        ? RECEPTOR_PUBLICO_GENERAL_COMO_RECEPTOR
+        : receptores.find((r) => r.Rfc === rfc);
+    setUsoCfdiSeleccionado(receptor?.UsoCfdi || RECEPTOR_PUBLICO_GENERAL.UsoCFDI);
+  }
 
   function actualizarConcepto(i: number, c: ConceptoInput) {
     setConceptos((prev) => prev.map((prevC, idx) => (idx === i ? c : prevC)));
@@ -130,6 +173,12 @@ export default function NuevaFacturaPage() {
           folio,
           formaPago,
           metodoPago,
+          condicionesDePago: condicionesDePago.trim() || undefined,
+          receptorRfc: receptorSeleccionado.Rfc,
+          receptorNombre: receptorSeleccionado.Nombre,
+          receptorRegimenFiscal: receptorSeleccionado.RegimenFiscal,
+          receptorDomicilioFiscal: receptorSeleccionado.DomicilioFiscal,
+          receptorUsoCfdi: usoCfdiSeleccionado,
           conceptos,
         }),
       });
@@ -161,6 +210,8 @@ export default function NuevaFacturaPage() {
           onClick={() => {
             setResultado(null);
             setConceptos([{ ...CONCEPTO_VACIO }]);
+            setCondicionesDePago("");
+            handleSeleccionarReceptor(RFC_PUBLICO_GENERAL);
           }}
           className="mt-4 inline-block rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-[var(--brand-ink)]"
         >
@@ -278,6 +329,66 @@ export default function NuevaFacturaPage() {
                 ))}
               </select>
             </div>
+
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-neutral-700">
+                Condiciones de pago (opcional)
+              </label>
+              <input
+                className={inputClass}
+                placeholder="Ej. Contado, 30 días..."
+                value={condicionesDePago}
+                onChange={(e) => setCondicionesDePago(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-neutral-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-neutral-900">Receptor</h2>
+            <button
+              type="button"
+              onClick={() => setModalReceptorAbierto(true)}
+              className="text-sm font-medium text-[var(--brand)] hover:underline"
+            >
+              + Nuevo receptor
+            </button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">Cliente</label>
+              <select
+                className={inputClass}
+                value={rfcReceptorSeleccionado}
+                onChange={(e) => handleSeleccionarReceptor(e.target.value)}
+              >
+                <option value={RFC_PUBLICO_GENERAL}>Público en general</option>
+                {receptores.map((r) => (
+                  <option key={r.Rfc} value={r.Rfc}>
+                    {r.Nombre} ({r.Rfc})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">
+                Uso de CFDI
+              </label>
+              <select
+                className={inputClass}
+                value={usoCfdiSeleccionado}
+                onChange={(e) => setUsoCfdiSeleccionado(e.target.value)}
+              >
+                {USOS_CFDI.map((u) => (
+                  <option key={u.value} value={u.value}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -339,6 +450,19 @@ export default function NuevaFacturaPage() {
           {enviando ? "Timbrando..." : "Timbrar factura"}
         </button>
       </form>
+
+      {modalReceptorAbierto && rfcEmisor && (
+        <ReceptorFormModal
+          rfcEmisor={rfcEmisor}
+          onClose={() => setModalReceptorAbierto(false)}
+          onSaved={(nuevo) => {
+            setModalReceptorAbierto(false);
+            setReceptores((prev) => [...prev.filter((r) => r.Rfc !== nuevo.Rfc), nuevo]);
+            setRfcReceptorSeleccionado(nuevo.Rfc);
+            setUsoCfdiSeleccionado(nuevo.UsoCfdi || RECEPTOR_PUBLICO_GENERAL.UsoCFDI);
+          }}
+        />
+      )}
     </div>
   );
 }

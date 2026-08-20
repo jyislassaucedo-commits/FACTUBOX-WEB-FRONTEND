@@ -6,7 +6,15 @@ export async function POST(request: NextRequest) {
     | (NuevaFacturaInput & { emisorToken: string })
     | null;
 
-  if (!body?.emisorToken || !body?.rfcEmisor || !body?.conceptos?.length) {
+  if (
+    !body?.emisorToken ||
+    !body?.rfcEmisor ||
+    !body?.conceptos?.length ||
+    !body?.receptorRfc ||
+    !body?.receptorNombre ||
+    !body?.receptorRegimenFiscal ||
+    !body?.receptorUsoCfdi
+  ) {
     return NextResponse.json({ error: "Faltan datos de la factura" }, { status: 400 });
   }
 

@@ -36,8 +36,12 @@ export async function callLegacyPhpApi<T = Record<string, unknown>>(
     cache: "no-store",
   });
 
-  const data = await res.json();
-  return data as PhpResponse<T>;
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as PhpResponse<T>;
+  } catch {
+    throw new Error(`Respuesta no-JSON de ${path}: ${text}`);
+  }
 }
 
 // Para endpoints legacy que reciben archivos ($_FILES) ademas de campos de

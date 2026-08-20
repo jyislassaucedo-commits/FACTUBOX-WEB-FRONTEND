@@ -6,6 +6,7 @@ import { EmisorForm } from "@/components/emisores/EmisorForm";
 import { CsdSection } from "@/components/emisores/CsdSection";
 import { ConfigPdfSection } from "@/components/emisores/ConfigPdfSection";
 import { SeriesSection } from "@/components/emisores/SeriesSection";
+import { ReceptoresSection } from "@/components/receptores/ReceptoresSection";
 import type { EmisorDetalle, EmisorInput } from "@/lib/emisores";
 
 export default function EmisorDetallePage({
@@ -102,6 +103,8 @@ export default function EmisorDetallePage({
       />
 
       <SeriesSection rfc={emisor.Rfc} />
+
+      <ReceptoresSection rfc={emisor.Rfc} />
 
       <ConfigPdfSection rfc={emisor.Rfc} emisorNombre={emisor.Nombre} />
     </div>
