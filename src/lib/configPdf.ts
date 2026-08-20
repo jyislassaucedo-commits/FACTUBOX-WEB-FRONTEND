@@ -3,7 +3,6 @@ import { getSession } from "./session";
 import { hexToArgbInt } from "./colorArgb";
 import {
   CONFIG_PDF_DEFAULT,
-  NOMBRE_CONFIG,
   rawToForm,
   type ConfigPdfForm,
   type ConfigPdfRaw,
@@ -12,21 +11,17 @@ import {
 export type { ConfigPdfForm, ConfigPdfRaw };
 export { CONFIG_PDF_DEFAULT };
 
-export async function getConfigPdf(rfcEmisor: string): Promise<ConfigPdfForm> {
+export async function getConfigPdfs(rfcEmisor: string): Promise<ConfigPdfForm[]> {
   const session = await getSession();
-  if (!session) return CONFIG_PDF_DEFAULT;
+  if (!session) return [];
 
   const resp = await callLegacyPhpApi<{ Configuraciones: ConfigPdfRaw[] }>(
     "/maa/mvc/Empresa/ConfigPDF/api/getConfigPdfsV2.php",
     { Token: session.token, RfcEmisor: rfcEmisor }
   );
 
-  if (resp.Error !== "0" || !resp.Configuraciones?.length) {
-    return CONFIG_PDF_DEFAULT;
-  }
-
-  const propio = resp.Configuraciones.find((c) => c.Nombre === NOMBRE_CONFIG);
-  return rawToForm(propio ?? resp.Configuraciones[0]);
+  if (resp.Error !== "0") return [];
+  return (resp.Configuraciones ?? []).map(rawToForm);
 }
 
 export async function saveConfigPdf(
@@ -36,8 +31,12 @@ export async function saveConfigPdf(
   const session = await getSession();
   if (!session) return { Error: "1", DescripError: "No autenticado" };
 
+  if (!form.nombre.trim()) {
+    return { Error: "1", DescripError: "Falta el nombre de la configuración" };
+  }
+
   const datosJSON: Record<string, unknown> = {
-    Nombre: NOMBRE_CONFIG,
+    Nombre: form.nombre.trim(),
     ColorFondo: hexToArgbInt(form.colorFondo),
     ColorFuente: hexToArgbInt(form.colorFuente),
     ColorContorno: hexToArgbInt(form.colorContorno),
@@ -66,5 +65,18 @@ export async function saveConfigPdf(
   return callLegacyPhpApi<{ ConfigPdf: number }>(
     "/maa/mvc/Empresa/ConfigPDF/api/setConfigPdfV2.php",
     { Token: session.token, DatosJSON: datosJSON64, RFCEmisor: rfcEmisor }
+  );
+}
+
+export async function deleteConfigPdf(
+  rfcEmisor: string,
+  nombre: string
+): Promise<PhpResponse<{ Descripcion: string }>> {
+  const session = await getSession();
+  if (!session) return { Error: "1", DescripError: "No autenticado" };
+
+  return callLegacyPhpApi(
+    "/maa/mvc/Empresa/ConfigPDF/api/deleteConfigPdfV2.php",
+    { Token: session.token, RfcEmisor: rfcEmisor, Nombre: nombre }
   );
 }

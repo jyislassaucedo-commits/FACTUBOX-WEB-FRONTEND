@@ -87,6 +87,53 @@ export async function saveEmisor(
   );
 }
 
+export type ValidarCsdResult = {
+  VigenciaCertificados: string;
+  Rfc: string;
+  Existente: "SI" | "NO";
+  RazonSocial: string;
+};
+
+// Valida estructura/password del CSD SIN persistirlo (dry-run) - usado
+// antes de subirlo, para mostrar el RFC/razon social encontrados y detectar
+// si no corresponde a este emisor.
+export async function validarCsd(
+  csd: File,
+  key: File,
+  pass: string
+): Promise<PhpResponse<ValidarCsdResult>> {
+  const session = await getSession();
+  if (!session) return { Error: "1", DescripError: "No autenticado" };
+
+  const formData = new FormData();
+  formData.append("Token", session.token);
+  // validarCSDV2.php exige EmpresaToken pero no lo usa para nada en el
+  // cuerpo del endpoint (es una validacion generica, no ligada a un
+  // emisor en particular) - se manda un valor fijo solo para cumplir el
+  // contrato de "atributo declarado".
+  formData.append("EmpresaToken", "validacion");
+  formData.append("Pass", pass);
+  formData.append("Csd", csd, csd.name);
+  formData.append("Key", key, key.name);
+
+  return callLegacyPhpApiFormData<ValidarCsdResult>(
+    "/maa/mvc/Empresa/api/validarCSDV2.php",
+    formData
+  );
+}
+
+export async function existeCsd(empresaToken: string): Promise<boolean> {
+  const session = await getSession();
+  if (!session) return false;
+
+  const resp = await callLegacyPhpApi<{ Result: string }>(
+    "/maa/mvc/Empresa/api/existeCSDV2.php",
+    { Token: session.token, EmpresaToken: empresaToken }
+  );
+
+  return resp.Error === "0" && resp.Result === "True";
+}
+
 export async function uploadCsd(
   empresaToken: string,
   csd: File,

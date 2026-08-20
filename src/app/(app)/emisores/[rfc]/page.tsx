@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { EmisorForm } from "@/components/emisores/EmisorForm";
 import { CsdSection } from "@/components/emisores/CsdSection";
 import { ConfigPdfSection } from "@/components/emisores/ConfigPdfSection";
+import { SeriesSection } from "@/components/emisores/SeriesSection";
 import type { EmisorDetalle, EmisorInput } from "@/lib/emisores";
 
 export default function EmisorDetallePage({
@@ -16,6 +17,7 @@ export default function EmisorDetallePage({
   const router = useRouter();
   const [emisor, setEmisor] = useState<EmisorDetalle | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sugerenciaNombre, setSugerenciaNombre] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/empresas/${encodeURIComponent(rfc)}`)
@@ -61,7 +63,25 @@ export default function EmisorDetallePage({
 
       <div className="rounded-xl border border-neutral-200 bg-white p-4">
         <h2 className="mb-4 text-sm font-semibold text-neutral-900">Datos generales</h2>
+
+        {sugerenciaNombre && sugerenciaNombre !== emisor.Nombre && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-800">
+            <span>El certificado indica la razón social: “{sugerenciaNombre}”.</span>
+            <button
+              type="button"
+              onClick={() => {
+                setEmisor({ ...emisor, Nombre: sugerenciaNombre });
+                setSugerenciaNombre(null);
+              }}
+              className="whitespace-nowrap font-medium underline"
+            >
+              Usar este nombre
+            </button>
+          </div>
+        )}
+
         <EmisorForm
+          key={emisor.Nombre}
           initial={{
             rfc: emisor.Rfc,
             nombre: emisor.Nombre,
@@ -81,9 +101,12 @@ export default function EmisorDetallePage({
         onUploaded={(vigencia) =>
           setEmisor({ ...emisor, VigenciaCert: vigencia, InicioCert: vigencia })
         }
+        onRazonSocial={setSugerenciaNombre}
       />
 
-      <ConfigPdfSection rfc={emisor.Rfc} />
+      <SeriesSection rfc={emisor.Rfc} />
+
+      <ConfigPdfSection rfc={emisor.Rfc} emisorNombre={emisor.Nombre} />
     </div>
   );
 }

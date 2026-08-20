@@ -28,6 +28,7 @@ export type ConfigPdfRaw = {
 };
 
 export type ConfigPdfForm = {
+  nombre: string;
   colorFondo: string;
   colorFuente: string;
   colorContorno: string;
@@ -47,13 +48,12 @@ export type ConfigPdfForm = {
   imagenExtension?: string;
 };
 
-export const NOMBRE_CONFIG = "Predeterminado";
-
 export const CONFIG_PDF_DEFAULT: ConfigPdfForm = {
+  nombre: "",
   colorFondo: "#e3e3e3",
   colorFuente: "#000000",
   colorContorno: "#e3e3e3",
-  colorSeparador: "#e5c470", // placeholder, se ajusta con el default real del backend
+  colorSeparador: "#e5c470",
   colorTitulos: "#000000",
   grosorSeparador: 0.6,
   tamanoFuente: 7.5,
@@ -69,6 +69,7 @@ export const CONFIG_PDF_DEFAULT: ConfigPdfForm = {
 
 export function rawToForm(raw: ConfigPdfRaw): ConfigPdfForm {
   return {
+    nombre: raw.Nombre,
     colorFondo: argbIntToHex(raw.ColorFondo, CONFIG_PDF_DEFAULT.colorFondo),
     colorFuente: argbIntToHex(raw.ColorFuente, CONFIG_PDF_DEFAULT.colorFuente),
     colorContorno: argbIntToHex(raw.ColorContorno, CONFIG_PDF_DEFAULT.colorContorno),

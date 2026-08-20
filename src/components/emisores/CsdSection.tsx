@@ -8,6 +8,7 @@ export function CsdSection({
   vigenciaActual,
   tieneCsd,
   onUploaded,
+  onRazonSocial,
 }: {
   rfc: string;
   token: string;
@@ -17,17 +18,20 @@ export function CsdSection({
   // en disco) es la unica senal confiable de si ya existe un certificado.
   tieneCsd: boolean;
   onUploaded: (vigencia: string) => void;
+  onRazonSocial: (razonSocial: string) => void;
 }) {
   const [csdFile, setCsdFile] = useState<File | null>(null);
   const [keyFile, setKeyFile] = useState<File | null>(null);
   const [pass, setPass] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setWarning(null);
     setSuccess(null);
 
     if (!csdFile || !keyFile || !pass) {
@@ -37,6 +41,39 @@ export function CsdSection({
 
     setSaving(true);
     try {
+      // 1) Validar estructura/password SIN persistir, para detectar de una
+      // vez si el certificado corresponde a este emisor y obtener la razon
+      // social para sugerir el nombre.
+      const validarForm = new FormData();
+      validarForm.append("pass", pass);
+      validarForm.append("csd", csdFile);
+      validarForm.append("key", keyFile);
+
+      const resValidar = await fetch(
+        `/api/empresas/${encodeURIComponent(rfc)}/csd/validar`,
+        { method: "POST", body: validarForm }
+      );
+      const validado = await resValidar.json();
+
+      if (!resValidar.ok) {
+        setError(validado.error ?? "El certificado no es válido");
+        return;
+      }
+
+      if (validado.Rfc && validado.Rfc.toUpperCase() !== rfc.toUpperCase()) {
+        setError(
+          `Este certificado pertenece a ${validado.Rfc}, no a ${rfc}. Sube el certificado correcto para este emisor.`
+        );
+        return;
+      }
+
+      if (validado.Existente === "SI") {
+        setWarning(
+          "Este certificado ya está registrado en otro de tus emisores. Se subirá de todas formas."
+        );
+      }
+
+      // 2) Subir y persistir de verdad.
       const formData = new FormData();
       formData.append("token", token);
       formData.append("pass", pass);
@@ -59,6 +96,9 @@ export function CsdSection({
       setCsdFile(null);
       setKeyFile(null);
       onUploaded(body.VigenciaCertificados);
+      if (body.RazonSocial) {
+        onRazonSocial(body.RazonSocial);
+      }
     } catch {
       setError("No se pudo conectar con el servidor");
     } finally {
@@ -118,6 +158,11 @@ export function CsdSection({
         {error && (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         )}
+        {warning && (
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            {warning}
+          </p>
+        )}
         {success && (
           <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
             {success}
@@ -129,7 +174,7 @@ export function CsdSection({
           disabled={saving}
           className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-50"
         >
-          {saving ? "Subiendo..." : "Subir certificado"}
+          {saving ? "Validando y subiendo..." : "Subir certificado"}
         </button>
       </form>
     </div>

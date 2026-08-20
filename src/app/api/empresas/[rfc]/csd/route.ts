@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { uploadCsd } from "@/lib/emisores";
+import { existeCsd, uploadCsd } from "@/lib/emisores";
+
+export async function GET(request: NextRequest) {
+  const token = request.nextUrl.searchParams.get("token");
+  if (!token) {
+    return NextResponse.json({ error: "Falta el token del emisor" }, { status: 400 });
+  }
+  const existe = await existeCsd(token);
+  return NextResponse.json({ existe });
+}
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
