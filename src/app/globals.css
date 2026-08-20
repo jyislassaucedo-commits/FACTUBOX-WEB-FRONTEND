@@ -12,12 +12,10 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* La interfaz por ahora es solo tema claro (fondos blancos/neutros fijos
+   en cada componente); no seguir prefers-color-scheme aqui evita que el
+   texto se vuelva claro sobre fondos claros cuando el SO esta en modo
+   oscuro. */
 
 body {
   background: var(--background);

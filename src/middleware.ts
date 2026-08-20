@@ -22,5 +22,8 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  // El "\\..*" excluye cualquier ruta con extension (imagenes, css, etc.)
+  // servida desde /public - sin esto, el middleware las interceptaba y
+  // las redirigia a /login como si fueran paginas.
+  matcher: ["/((?!api|_next/static|_next/image|.*\\..*|favicon.ico).*)"],
 };

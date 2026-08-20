@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -40,6 +41,14 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
       <div className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-8 shadow-sm">
+        <Image
+          src="/logo-horizontal.png"
+          alt="Cajero Punto de Venta"
+          width={200}
+          height={50}
+          className="mx-auto mb-6 h-auto w-48"
+          priority
+        />
         <h1 className="mb-6 text-xl font-semibold text-neutral-900">
           Iniciar sesión
         </h1>
@@ -59,7 +68,7 @@ export default function LoginPage() {
               required
               value={usuario}
               onChange={(e) => setUsuario(e.target.value)}
-              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-500"
             />
           </div>
 
@@ -77,7 +86,7 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-500"
             />
           </div>
 
