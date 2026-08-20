@@ -16,7 +16,21 @@ export type ConceptoInput = {
   retencionIsrTasa: string; // "" = sin retencion
 };
 
+/** Tipos de comprobante que esta pantalla sabe armar hoy. */
+export type TipoComprobante = "I" | "E";
+
+/**
+ * Documento(s) que este CFDI relaciona. Para una nota de crédito (Egreso) el
+ * SAT espera TipoRelacion "01" apuntando a la factura que corrige.
+ */
+export type CfdiRelacionadosInput = {
+  tipoRelacion: string;
+  uuids: string[];
+};
+
 export type NuevaFacturaInput = {
+  tipoDeComprobante: TipoComprobante;
+  cfdiRelacionados?: CfdiRelacionadosInput;
   rfcEmisor: string;
   nombreEmisor: string;
   regimenEmisor: string;
@@ -191,7 +205,17 @@ function buildDatosJSON(input: NuevaFacturaInput) {
   // InformacionGlobal solo aplica al RFC generico de Publico en General -
   // para un receptor real (con su propio RFC) el SAT rechaza el CFDI si
   // este nodo esta presente.
-  const esPublicoGeneral = input.receptorRfc === RECEPTOR_PUBLICO_GENERAL.Rfc;
+  // Dos reglas distintas que NO deben mezclarse:
+  //
+  // 1. El RFC genérico siempre exige que DomicilioFiscalReceptor sea el CP del
+  //    emisor (el receptor genérico no tiene domicilio propio).
+  // 2. InformacionGlobal solo aplica a comprobantes de INGRESO a público en
+  //    general (factura global); en un Egreso el SAT no la espera.
+  //
+  // Colapsarlas en una sola bandera dejaba el domicilio vacío en una nota de
+  // crédito a público en general, y el SAT rechaza el CFDI sin ese atributo.
+  const esRfcGenerico = input.receptorRfc === RECEPTOR_PUBLICO_GENERAL.Rfc;
+  const llevaInformacionGlobal = esRfcGenerico && input.tipoDeComprobante === "I";
   const condicionesDePago = input.condicionesDePago?.trim() ?? "";
 
   return {
@@ -216,7 +240,7 @@ function buildDatosJSON(input: NuevaFacturaInput) {
     MetodoPago: input.metodoPago,
     TipoCambio: "1",
     Total: total.toFixed(2),
-    TipoDeComprobante: "I",
+    TipoDeComprobante: input.tipoDeComprobante,
     Exportacion: "01",
     LugarExpedicion: input.lugarExpedicion,
     // El orden de las propiedades importa: JSON_CFDI40.php arma los nodos
@@ -228,13 +252,30 @@ function buildDatosJSON(input: NuevaFacturaInput) {
     // el receptor es "Publico en General" (XAXX010101000), incluso para una
     // sola factura (no solo para el resumen periodico "factura global") -
     // y debe OMITIRSE cuando el receptor es real (RFC especifico).
-    ...(esPublicoGeneral
+    ...(llevaInformacionGlobal
       ? {
           InformacionGlobal: {
             Periodicidad: "01",
             Meses: fechaISO.slice(5, 7),
             Año: fechaISO.slice(0, 4),
           },
+        }
+      : {}),
+    // CfdiRelacionados debe ser un ARREGLO: leerJson() lo pasa por
+    // arrayNodoDinamico(), que solo actúa si el valor es array. El nodo
+    // resultante queda entre InformacionGlobal y Emisor porque ese es el
+    // orden en que la clase CFDI40 (endpoint/lib/CFDI40.php) declara sus
+    // propiedades, y xmlCfdi() recorre el objeto en ese orden.
+    ...(input.cfdiRelacionados && input.cfdiRelacionados.uuids.length > 0
+      ? {
+          CfdiRelacionados: [
+            {
+              TipoRelacion: input.cfdiRelacionados.tipoRelacion,
+              CfdiRelacionado: input.cfdiRelacionados.uuids.map((uuid) => ({
+                UUID: uuid,
+              })),
+            },
+          ],
         }
       : {}),
     Emisor: {
@@ -247,7 +288,9 @@ function buildDatosJSON(input: NuevaFacturaInput) {
       Nombre: input.receptorNombre,
       // Para Publico en General el SAT exige que sea el CP del propio
       // emisor; para un receptor real es su domicilio fiscal capturado.
-      DomicilioFiscalReceptor: esPublicoGeneral ? input.lugarExpedicion : input.receptorDomicilioFiscal,
+      DomicilioFiscalReceptor: esRfcGenerico
+        ? input.lugarExpedicion
+        : input.receptorDomicilioFiscal,
       RegimenFiscalReceptor: input.receptorRegimenFiscal,
       UsoCFDI: input.receptorUsoCfdi,
     },

@@ -453,15 +453,26 @@ export function Modal({
 }) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
+  // onClose casi siempre es un closure inline (`() => setX(false)`), asi que
+  // cambia de identidad en cada render del padre - por ejemplo, en cada
+  // keystroke de un input dentro del modal. Se guarda en un ref para que el
+  // efecto de abajo pueda llamar siempre la version mas reciente sin tener
+  // que declarar onClose como dependencia (lo que reejecutaria el efecto, y
+  // con el ref.current?.focus() de abajo, robaria el foco del input activo
+  // en cada tecla).
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKey);
     ref.current?.focus();
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   return (
     <div
@@ -508,6 +519,110 @@ export function Modal({
 }
 
 /* -------------------------------------------------------------------------- */
+/* Stepper                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export type PasoEstado = "pendiente" | "actual" | "completo" | "error";
+
+/**
+ * Indicador de pasos de un asistente. El estado de cada paso lo calcula quien
+ * lo usa (aquí no hay lógica de validación) para que el indicador pueda
+ * reaccionar en vivo a lo que el usuario escribe.
+ */
+export function Stepper({
+  pasos,
+  onIr,
+}: {
+  pasos: Array<{
+    id: string;
+    titulo: string;
+    descripcion?: string;
+    estado: PasoEstado;
+    /** Cuántos datos faltan; se muestra en el paso con error. */
+    faltantes?: number;
+  }>;
+  onIr?: (id: string, indice: number) => void;
+}) {
+  return (
+    <ol className="flex flex-wrap gap-1.5">
+      {pasos.map((paso, i) => {
+        const clickable = Boolean(onIr);
+        const Elemento = clickable ? "button" : "div";
+        return (
+          <li key={paso.id} className="min-w-[150px] flex-1">
+            <Elemento
+              {...(clickable
+                ? { type: "button" as const, onClick: () => onIr?.(paso.id, i) }
+                : {})}
+              aria-current={paso.estado === "actual" ? "step" : undefined}
+              className={cx(
+                "focus-brand w-full rounded-xl border px-3 py-2.5 text-left transition",
+                clickable && "cursor-pointer",
+                paso.estado === "actual"
+                  ? "border-brand bg-brand-050"
+                  : paso.estado === "error"
+                    ? "border-warn/40 bg-warn-bg"
+                    : paso.estado === "completo"
+                      ? "border-line bg-surface hover:border-ink-4"
+                      : "border-line bg-surface-2"
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <span
+                  className={cx(
+                    "grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10.5px] font-bold",
+                    paso.estado === "completo"
+                      ? "bg-ok-bg text-ok"
+                      : paso.estado === "error"
+                        ? "bg-warn text-white"
+                        : paso.estado === "actual"
+                          ? "bg-brand text-brand-ink"
+                          : "bg-line-2 text-ink-4"
+                  )}
+                  aria-hidden
+                >
+                  {paso.estado === "completo" ? "✓" : paso.estado === "error" ? "!" : i + 1}
+                </span>
+                <span
+                  className={cx(
+                    "truncate text-[13px] font-semibold",
+                    paso.estado === "actual"
+                      ? "text-brand-600"
+                      : paso.estado === "error"
+                        ? "text-warn"
+                        : paso.estado === "completo"
+                          ? "text-ink"
+                          : "text-ink-3"
+                  )}
+                >
+                  {paso.titulo}
+                </span>
+              </span>
+              <span className="mt-1 block truncate text-[11.5px] text-ink-3">
+                {paso.estado === "error" && paso.faltantes
+                  ? `Faltan ${paso.faltantes} dato${paso.faltantes === 1 ? "" : "s"}`
+                  : paso.descripcion}
+              </span>
+            </Elemento>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Mensaje de error de un campo. Devuelve null si no hay error. */
+export function FieldError({ mensaje }: { mensaje?: string | null }) {
+  if (!mensaje) return null;
+  return (
+    <span role="alert" className="flex items-start gap-1 text-[11.5px] font-medium text-danger">
+      <span aria-hidden>!</span>
+      {mensaje}
+    </span>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Drawer (panel lateral)                                                     */
 /* -------------------------------------------------------------------------- */
 
@@ -530,15 +645,22 @@ export function Drawer({
 }) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
+  // Mismo problema que en Modal (ver comentario ahi): onClose cambia de
+  // identidad en cada render del padre, asi que no puede ir en las deps de
+  // un efecto que hace focus().
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKey);
     ref.current?.focus();
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   return (
     <div
