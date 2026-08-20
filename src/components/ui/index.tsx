@@ -542,6 +542,19 @@ export function FileDrop({
   const inputRef = useRef<HTMLInputElement>(null);
   const activo = Boolean(file) || done;
 
+  // Miniatura solo para archivos de imagen (el logo) - CSD .cer/.key no
+  // aplica. El object URL se crea en el render (no en un efecto, para no
+  // hacer setState ahi) y se libera con el efecto de limpieza de abajo.
+  const previewUrl = useMemo(() => {
+    if (!file || !file.type.startsWith("image/")) return null;
+    return URL.createObjectURL(file);
+  }, [file]);
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
   return (
     <div
       onDragOver={(e) => {
@@ -566,14 +579,24 @@ export function FileDrop({
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="focus-brand w-full rounded-lg"
+        className="focus-brand flex w-full items-center gap-3 rounded-lg"
       >
-        <p className={cx("text-[13px] font-semibold", activo ? "text-ok" : "text-ink")}>
-          {file ? file.name : label}
-        </p>
-        <p className={cx("mt-0.5 text-[11.5px]", activo ? "text-ok" : "text-ink-3")}>
-          {file ? "Listo para subir" : done ? "Ya cargado · haz clic para reemplazar" : hint}
-        </p>
+        {previewUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={previewUrl}
+            alt=""
+            className="h-10 w-16 shrink-0 rounded object-contain"
+          />
+        )}
+        <span className={cx("min-w-0 flex-1", previewUrl ? "text-left" : "text-center")}>
+          <p className={cx("truncate text-[13px] font-semibold", activo ? "text-ok" : "text-ink")}>
+            {file ? file.name : label}
+          </p>
+          <p className={cx("mt-0.5 text-[11.5px]", activo ? "text-ok" : "text-ink-3")}>
+            {file ? "Listo para subir" : done ? "Ya cargado · haz clic para reemplazar" : hint}
+          </p>
+        </span>
       </button>
       <input
         ref={inputRef}
