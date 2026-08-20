@@ -1,41 +1,69 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Field,
+  FileDrop,
+  Input,
+  Note,
+  Pill,
+  ProgressBar,
+  useToast,
+} from "@/components/ui";
+import { diasRestantes, formatoFecha, parseVigencia } from "@/lib/emisorNav";
+
+/** Vigencia tipica de un CSD del SAT: 4 años. Solo para dibujar la barra. */
+const VIGENCIA_TOTAL_DIAS = 4 * 365;
 
 export function CsdSection({
   rfc,
   token,
   vigenciaActual,
-  onUploaded,
-  onRazonSocial,
+  inicioCert,
+  tieneCsd,
+  regimen,
+  lugarExp,
 }: {
   rfc: string;
   token: string;
   vigenciaActual: string;
-  onUploaded: (vigencia: string) => void;
-  onRazonSocial: (razonSocial: string) => void;
+  inicioCert: string;
+  tieneCsd: boolean;
+  /** Se reenvian tal cual al guardar la razon social sugerida: setEmpresaV2
+   *  sobrescribe el registro completo, no hace merge. */
+  regimen: string;
+  lugarExp: string;
 }) {
-  // null = todavia verificando. Fuente de verdad: existeCSDV2 (revisa los
-  // archivos .cer/.key en disco directamente), no VigenciaCert (el backend
-  // le pone una fecha placeholder al crear el emisor aunque no haya CSD).
-  const [tieneCsd, setTieneCsd] = useState<boolean | null>(null);
+  const router = useRouter();
+  const toast = useToast();
+
   const [csdFile, setCsdFile] = useState<File | null>(null);
   const [keyFile, setKeyFile] = useState<File | null>(null);
   const [pass, setPass] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [sugerencia, setSugerencia] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    fetch(`/api/empresas/${encodeURIComponent(rfc)}/csd?token=${encodeURIComponent(token)}`)
-      .then((res) => res.json())
-      .then((body) => setTieneCsd(Boolean(body.existe)));
-  }, [rfc, token]);
+  const dias = tieneCsd ? diasRestantes(vigenciaActual) : null;
+  const inicio = parseVigencia(inicioCert);
+  const fin = parseVigencia(vigenciaActual);
+  const totalDias =
+    inicio && fin ? Math.max(1, Math.round((fin.getTime() - inicio.getTime()) / 86_400_000)) : VIGENCIA_TOTAL_DIAS;
+  const restantePct = dias === null ? 0 : Math.max(0, Math.min(100, (dias / totalDias) * 100));
+  const vencido = dias !== null && dias < 0;
+  const porVencer = dias !== null && dias >= 0 && dias < 30;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setWarning(null);
+    setSugerencia(null);
 
     if (!csdFile || !keyFile || !pass) {
       setError("Selecciona el .cer, el .key y escribe la contraseña.");
@@ -102,11 +130,9 @@ export function CsdSection({
       setPass("");
       setCsdFile(null);
       setKeyFile(null);
-      setTieneCsd(true);
-      onUploaded(body.VigenciaCertificados);
-      if (body.RazonSocial) {
-        onRazonSocial(body.RazonSocial);
-      }
+      if (body.RazonSocial) setSugerencia(body.RazonSocial);
+      toast(tieneCsd ? "Certificado reemplazado" : "Certificado cargado");
+      router.refresh();
     } catch {
       setError("No se pudo conectar con el servidor");
     } finally {
@@ -114,130 +140,173 @@ export function CsdSection({
     }
   }
 
+  async function usarRazonSocial(nombre: string) {
+    const res = await fetch("/api/empresas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rfc,
+        nombre,
+        regimenFiscal: regimen,
+        domicilioFiscal: lugarExp,
+      }),
+    });
+    if (!res.ok) {
+      toast("No se pudo actualizar la razón social", "danger");
+      return;
+    }
+    setSugerencia(null);
+    toast("Razón social actualizada");
+    router.refresh();
+  }
+
   return (
-    <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
-      <div className="p-4">
-        <h2 className="text-sm font-semibold text-neutral-900">
-          Certificado de sello digital (CSD)
-        </h2>
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+      <div className="space-y-4">
+        <Card>
+          <CardHeader
+            title="Certificado activo"
+            description="Con el CSD se sella cada CFDI. Sin uno vigente no puedes timbrar."
+            action={
+              tieneCsd ? (
+                <Pill tone={vencido ? "danger" : porVencer ? "warn" : "ok"}>
+                  ● {vencido ? "Vencido" : porVencer ? "Por vencer" : "Vigente"}
+                </Pill>
+              ) : (
+                <Pill tone="danger">● Sin certificado</Pill>
+              )
+            }
+          />
+          <CardBody>
+            {tieneCsd ? (
+              <>
+                <div className="mb-5">
+                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2 text-[12.5px]">
+                    <span className="text-ink-3">Vigencia restante</span>
+                    <span className="font-semibold text-ink">
+                      {dias === null
+                        ? "fecha no disponible"
+                        : vencido
+                          ? `venció el ${formatoFecha(vigenciaActual)}`
+                          : `${dias} días · expira ${formatoFecha(vigenciaActual)}`}
+                    </span>
+                  </div>
+                  <ProgressBar
+                    value={restantePct}
+                    tone={vencido ? "danger" : porVencer ? "warn" : "ok"}
+                  />
+                </div>
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-3">
-          <div
-            className={`grid grid-cols-1 gap-3 rounded-lg p-3 sm:grid-cols-2 ${
-              tieneCsd ? "border-2 border-green-500 bg-green-50/40" : "border border-neutral-200"
-            }`}
-          >
-            <div>
-              <label className="mb-1 flex items-center gap-1 text-xs font-medium text-neutral-600">
-                Archivo .cer
-                {tieneCsd && <CheckIcon />}
-              </label>
-              <input
-                type="file"
-                accept=".cer"
-                onChange={(e) => setCsdFile(e.target.files?.[0] ?? null)}
-                className="block w-full text-sm text-neutral-600"
-              />
-            </div>
-            <div>
-              <label className="mb-1 flex items-center gap-1 text-xs font-medium text-neutral-600">
-                Archivo .key
-                {tieneCsd && <CheckIcon />}
-              </label>
-              <input
-                type="file"
-                accept=".key"
-                onChange={(e) => setKeyFile(e.target.files?.[0] ?? null)}
-                className="block w-full text-sm text-neutral-600"
-              />
-            </div>
-          </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Válido desde">
+                    <Input readOnly value={inicioCert ? formatoFecha(inicioCert) : "—"} />
+                  </Field>
+                  <Field label="Válido hasta">
+                    <Input readOnly value={formatoFecha(vigenciaActual)} />
+                  </Field>
+                </div>
+              </>
+            ) : (
+              <Note tone="warn" title="Este emisor todavía no tiene certificado">
+                Sube el .cer y el .key que descargaste del SAT (Certifica), junto con la
+                contraseña de la llave privada.
+              </Note>
+            )}
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-600">
-              Contraseña de la llave privada
-            </label>
-            <input
-              type="password"
-              value={pass}
-              onChange={(e) => setPass(e.target.value)}
-              placeholder={tieneCsd ? "Solo si vas a reemplazar el certificado" : ""}
-              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-500 sm:w-64"
-            />
-          </div>
+            {sugerencia && (
+              <div className="mt-4">
+                <Note tone="info" title="El certificado indica otra razón social">
+                  El CSD dice “{sugerencia}”.{" "}
+                  <button
+                    type="button"
+                    onClick={() => usarRazonSocial(sugerencia)}
+                    className="focus-brand rounded font-semibold underline"
+                  >
+                    Usar este nombre
+                  </button>
+                </Note>
+              </div>
+            )}
+          </CardBody>
+        </Card>
 
-          {error && (
-            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-          )}
-          {warning && (
-            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
-              {warning}
-            </p>
-          )}
+        <Card>
+          <CardHeader
+            title={tieneCsd ? "Reemplazar certificado" : "Subir certificado"}
+            description={
+              tieneCsd
+                ? "Solo cuando renueves tu CSD ante el SAT. El anterior deja de usarse al guardar."
+                : "El .cer y el .key deben venir del mismo trámite."
+            }
+          />
+          <CardBody>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FileDrop
+                  label="Archivo .cer"
+                  hint="Certificado público"
+                  accept=".cer"
+                  file={csdFile}
+                  done={tieneCsd}
+                  onFile={setCsdFile}
+                />
+                <FileDrop
+                  label="Archivo .key"
+                  hint="Llave privada"
+                  accept=".key"
+                  file={keyFile}
+                  done={tieneCsd}
+                  onFile={setKeyFile}
+                />
+              </div>
 
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-50"
-          >
-            {saving
-              ? "Validando y subiendo..."
-              : tieneCsd
-                ? "Reemplazar certificado"
-                : "Subir certificado"}
-          </button>
-        </form>
+              <Field
+                label="Contraseña de la llave privada"
+                hint="Se envía cifrada y no se muestra de nuevo."
+                className="sm:max-w-sm"
+              >
+                <Input
+                  type="password"
+                  value={pass}
+                  autoComplete="off"
+                  onChange={(e) => setPass(e.target.value)}
+                  placeholder={tieneCsd ? "Solo si vas a reemplazar el certificado" : ""}
+                />
+              </Field>
+
+              {error && (
+                <Note tone="danger" title="No se pudo subir">
+                  {error}
+                </Note>
+              )}
+              {warning && <Note tone="warn">{warning}</Note>}
+
+              <Button type="submit" variant="primary" disabled={saving}>
+                {saving
+                  ? "Validando y subiendo..."
+                  : tieneCsd
+                    ? "Reemplazar certificado"
+                    : "Subir certificado"}
+              </Button>
+            </form>
+          </CardBody>
+        </Card>
       </div>
 
-      <StatusBanner tieneCsd={tieneCsd} vigenciaActual={vigenciaActual} />
+      <Card>
+        <CardHeader title="Antes de subir" />
+        <CardBody className="space-y-2.5">
+          <Note tone="info" title="Usa el CSD, no la e.firma">
+            El archivo de e.firma (FIEL) no sirve para timbrar.
+          </Note>
+          <Note tone="info" title="El .cer y el .key son pareja">
+            Deben provenir del mismo trámite ante el SAT.
+          </Note>
+          <Note tone="warn" title="Las facturas ya timbradas no cambian">
+            Conservan el sello del certificado con el que se emitieron.
+          </Note>
+        </CardBody>
+      </Card>
     </div>
-  );
-}
-
-function StatusBanner({
-  tieneCsd,
-  vigenciaActual,
-}: {
-  tieneCsd: boolean | null;
-  vigenciaActual: string;
-}) {
-  if (tieneCsd === null) {
-    return (
-      <p className="bg-neutral-100 px-4 py-2 text-center text-sm text-neutral-500">
-        Verificando certificado...
-      </p>
-    );
-  }
-
-  if (tieneCsd) {
-    return (
-      <p className="flex items-center justify-center gap-2 bg-green-600 px-4 py-2 text-center text-sm font-medium text-white">
-        <CheckIcon white />
-        El CSD se encuentra cargado correctamente
-        {vigenciaActual && ` · Vigente hasta ${vigenciaActual}`}
-      </p>
-    );
-  }
-
-  return (
-    <p className="bg-neutral-100 px-4 py-2 text-center text-sm text-neutral-600">
-      Este emisor todavía no tiene un certificado cargado.
-    </p>
-  );
-}
-
-function CheckIcon({ white }: { white?: boolean }) {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      className={white ? "text-white" : "text-green-600"}
-    >
-      <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }

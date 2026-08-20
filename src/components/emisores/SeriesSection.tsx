@@ -1,31 +1,69 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  ConfirmButton,
+  EmptyState,
+  Field,
+  Input,
+  Modal,
+  Note,
+  Pill,
+  RowActions,
+  SearchInput,
+  Segmented,
+  Select,
+  Table,
+  Td,
+  Th,
+  Toolbar,
+  useToast,
+} from "@/components/ui";
+import { tipoSerie } from "@/lib/emisorNav";
 import { TIPO_LABELS, TIPO_ORDEN } from "@/lib/reportesUtils";
 import type { Serie } from "@/lib/series";
 
-const inputClass =
-  "rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-500";
+type Filtro = "all" | string;
 
-type NuevaSerie = { nombre: string; tipo: string; inicio: string };
+const NUEVA_VACIA = { nombre: "", tipo: "I", inicio: "1" };
 
-const VACIA: NuevaSerie = { nombre: "", tipo: "I", inicio: "1" };
+export function SeriesSection({ rfc, series }: { rfc: string; series: Serie[] }) {
+  const router = useRouter();
+  const toast = useToast();
 
-export function SeriesSection({ rfc }: { rfc: string }) {
-  const [series, setSeries] = useState<Serie[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [nueva, setNueva] = useState<NuevaSerie>(VACIA);
+  const [q, setQ] = useState("");
+  const [filtro, setFiltro] = useState<Filtro>("all");
+  const [modalAbierto, setModalAbierto] = useState(false);
+  const [nueva, setNueva] = useState(NUEVA_VACIA);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [borrando, setBorrando] = useState<string | null>(null);
 
-  function cargar() {
-    fetch(`/api/empresas/${encodeURIComponent(rfc)}/series`)
-      .then((res) => res.json())
-      .then((body) => setSeries(body.series ?? []))
-      .finally(() => setLoading(false));
-  }
+  const filtradas = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    return series.filter(
+      (s) =>
+        (filtro === "all" || s.Tipo === filtro) &&
+        (!query || s.Nombre.toLowerCase().includes(query))
+    );
+  }, [series, q, filtro]);
 
-  useEffect(cargar, [rfc]);
+  const conteoPorTipo = useMemo(
+    () =>
+      TIPO_ORDEN.map((tipo) => ({
+        tipo,
+        label: TIPO_LABELS[tipo],
+        total: series.filter((s) => s.Tipo === tipo).length,
+      })),
+    [series]
+  );
+
+  const invalidas = series.filter((s) => !tipoSerie(s.Tipo).valido);
 
   async function handleAgregar(e: React.FormEvent) {
     e.preventDefault();
@@ -50,120 +88,226 @@ export function SeriesSection({ rfc }: { rfc: string }) {
         return;
       }
 
-      setNueva(VACIA);
-      cargar();
+      setNueva(NUEVA_VACIA);
+      setModalAbierto(false);
+      toast("Serie agregada");
+      router.refresh();
     } finally {
       setSaving(false);
     }
   }
 
   async function handleEliminar(serie: Serie) {
-    setError(null);
-    const res = await fetch(`/api/empresas/${encodeURIComponent(rfc)}/series`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nombre: serie.Nombre, tipo: serie.Tipo }),
-    });
-    const body = await res.json();
+    const clave = `${serie.Tipo}-${serie.Nombre}`;
+    setBorrando(clave);
+    try {
+      const res = await fetch(`/api/empresas/${encodeURIComponent(rfc)}/series`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: serie.Nombre, tipo: serie.Tipo }),
+      });
+      const body = await res.json();
 
-    if (!res.ok) {
-      setError(body.error ?? "No se pudo eliminar la serie");
-      return;
+      if (!res.ok) {
+        toast(body.error ?? "No se pudo eliminar la serie", "danger");
+        return;
+      }
+      toast("Serie eliminada");
+      router.refresh();
+    } finally {
+      setBorrando(null);
     }
-    cargar();
   }
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-neutral-900">Series y folios</h2>
-      <p className="mt-1 text-sm text-neutral-600">
-        Cada serie lleva su propio consecutivo de folio, según el tipo de comprobante.
-      </p>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {conteoPorTipo.map((t) => (
+          <button
+            key={t.tipo}
+            type="button"
+            onClick={() => setFiltro(filtro === t.tipo ? "all" : t.tipo)}
+            className={`focus-brand rounded-xl border px-3.5 py-3 text-left transition ${
+              filtro === t.tipo
+                ? "border-brand bg-brand-050"
+                : "border-line bg-surface hover:border-ink-4"
+            }`}
+          >
+            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3">
+              {t.label}
+            </span>
+            <span className="mt-1 block text-2xl font-bold leading-none tracking-tight text-ink">
+              {t.total}
+            </span>
+            <span className="mt-1 block text-[11.5px] text-ink-3">
+              {t.total === 1 ? "serie" : "series"}
+            </span>
+          </button>
+        ))}
+      </div>
 
-      {loading ? (
-        <p className="mt-4 text-sm text-neutral-500">Cargando...</p>
-      ) : series.length > 0 ? (
-        <table className="mt-4 w-full text-left text-sm">
-          <thead className="text-xs font-medium uppercase text-neutral-500">
-            <tr>
-              <th className="py-1.5 pr-2">Serie</th>
-              <th className="py-1.5 pr-2">Tipo</th>
-              <th className="py-1.5 pr-2">Folio inicial</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-neutral-100">
-            {series.map((serie) => (
-              <tr key={`${serie.Tipo}-${serie.Nombre}`}>
-                <td className="py-1.5 pr-2 font-medium text-neutral-900">{serie.Nombre}</td>
-                <td className="py-1.5 pr-2 text-neutral-700">
-                  {TIPO_LABELS[serie.Tipo] ?? serie.Tipo}
-                </td>
-                <td className="py-1.5 pr-2 text-neutral-700">{serie.Inicio}</td>
-                <td className="py-1.5 text-right">
-                  <button
-                    type="button"
-                    onClick={() => handleEliminar(serie)}
-                    className="text-xs font-medium text-red-600 hover:underline"
-                  >
-                    Eliminar
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="mt-4 text-sm text-neutral-500">Sin series todavía.</p>
+      {invalidas.length > 0 && (
+        <Note tone="warn" title={`${invalidas.length} serie(s) con tipo de comprobante inválido`}>
+          {invalidas.map((s) => `${s.Nombre || "(sin nombre)"} → "${s.Tipo}"`).join(", ")}. El
+          SAT solo acepta I (Ingreso), E (Egreso), N (Nómina), P (Pago) y T (Traslado);
+          conviene borrarlas y volverlas a crear con el tipo correcto.
+        </Note>
       )}
 
-      <form onSubmit={handleAgregar} className="mt-4 flex flex-wrap items-end gap-2">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-600">Serie</label>
-          <input
-            className={`${inputClass} w-24`}
-            placeholder="A"
-            value={nueva.nombre}
-            onChange={(e) => setNueva({ ...nueva, nombre: e.target.value })}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-600">Tipo</label>
-          <select
-            className={inputClass}
-            value={nueva.tipo}
-            onChange={(e) => setNueva({ ...nueva, tipo: e.target.value })}
-          >
-            {TIPO_ORDEN.map((tipo) => (
-              <option key={tipo} value={tipo}>
-                {TIPO_LABELS[tipo]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-600">
-            Folio inicial
-          </label>
-          <input
-            type="number"
-            min="1"
-            className={`${inputClass} w-28`}
-            value={nueva.inicio}
-            onChange={(e) => setNueva({ ...nueva, inicio: e.target.value })}
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-50"
-        >
-          {saving ? "Agregando..." : "Agregar serie"}
-        </button>
-      </form>
+      <Card>
+        <CardHeader
+          title="Series y folios"
+          description="Cada serie lleva su propio consecutivo de folio, según el tipo de comprobante."
+          action={
+            <Button variant="primary" onClick={() => setModalAbierto(true)}>
+              Agregar serie
+            </Button>
+          }
+        />
 
-      {error && (
-        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        <Toolbar>
+          <SearchInput
+            placeholder="Buscar serie…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <Segmented
+            ariaLabel="Filtrar por tipo de comprobante"
+            value={filtro}
+            onChange={setFiltro}
+            options={[
+              { value: "all", label: "Todas" },
+              ...TIPO_ORDEN.map((tipo) => ({ value: tipo, label: TIPO_LABELS[tipo] })),
+            ]}
+          />
+        </Toolbar>
+
+        {filtradas.length === 0 ? (
+          <EmptyState
+            title={series.length === 0 ? "Sin series todavía" : "Ninguna serie coincide"}
+            description={
+              series.length === 0
+                ? "Necesitas al menos una serie para poder emitir facturas."
+                : "Prueba con otro texto o quita el filtro de tipo."
+            }
+            action={
+              series.length === 0 ? (
+                <Button variant="primary" onClick={() => setModalAbierto(true)}>
+                  Agregar la primera serie
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Serie</Th>
+                <Th>Tipo</Th>
+                <Th>Folio inicial</Th>
+                <Th className="w-28" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtradas.map((serie) => {
+                const info = tipoSerie(serie.Tipo);
+                const clave = `${serie.Tipo}-${serie.Nombre}`;
+                const nombreRaro = !/^[A-Za-z0-9]+$/.test(serie.Nombre.trim());
+                return (
+                  <tr key={clave} className="group transition hover:bg-surface-2">
+                    <Td>
+                      <span
+                        className={`font-mono text-[13.5px] font-semibold ${
+                          nombreRaro ? "text-warn" : "text-ink"
+                        }`}
+                      >
+                        {serie.Nombre.trim() || "(sin nombre)"}
+                      </span>
+                    </Td>
+                    <Td>
+                      <Pill tone={info.tone} title={info.valido ? undefined : "Tipo no reconocido por el SAT"}>
+                        {info.valido ? info.label : `⚠ ${info.label}`}
+                      </Pill>
+                    </Td>
+                    <Td className="font-mono">{serie.Inicio}</Td>
+                    <Td>
+                      <RowActions>
+                        <ConfirmButton
+                          pending={borrando === clave}
+                          onConfirm={() => handleEliminar(serie)}
+                        />
+                      </RowActions>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        )}
+
+        <CardBody className="border-t border-line-2 py-3 text-[12px] text-ink-3">
+          Mostrando {filtradas.length} de {series.length} series.
+        </CardBody>
+      </Card>
+
+      {modalAbierto && (
+        <Modal
+          title="Agregar serie"
+          onClose={() => setModalAbierto(false)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setModalAbierto(false)}>
+                Cancelar
+              </Button>
+              <Button variant="primary" form="form-nueva-serie" type="submit" disabled={saving}>
+                {saving ? "Agregando…" : "Agregar serie"}
+              </Button>
+            </>
+          }
+        >
+          <form id="form-nueva-serie" onSubmit={handleAgregar} className="grid gap-4 sm:grid-cols-2">
+            <Field label="Serie" hint="Solo letras y números.">
+              <Input
+                className="font-mono"
+                placeholder="A"
+                maxLength={25}
+                autoFocus
+                value={nueva.nombre}
+                onChange={(e) => setNueva({ ...nueva, nombre: e.target.value })}
+              />
+            </Field>
+            <Field label="Tipo de comprobante">
+              <Select
+                value={nueva.tipo}
+                onChange={(e) => setNueva({ ...nueva, tipo: e.target.value })}
+              >
+                {TIPO_ORDEN.map((tipo) => (
+                  <option key={tipo} value={tipo}>
+                    {TIPO_LABELS[tipo]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field
+              label="Folio inicial"
+              hint="El siguiente CFDI de esta serie usará este folio."
+              className="sm:col-span-2"
+            >
+              <Input
+                type="number"
+                min={1}
+                className="font-mono"
+                value={nueva.inicio}
+                onChange={(e) => setNueva({ ...nueva, inicio: e.target.value })}
+              />
+            </Field>
+            {error && (
+              <div className="sm:col-span-2">
+                <Note tone="danger">{error}</Note>
+              </div>
+            )}
+          </form>
+        </Modal>
       )}
     </div>
   );

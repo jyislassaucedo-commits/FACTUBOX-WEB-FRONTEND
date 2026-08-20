@@ -1,6 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Card, CardBody, CardHeader } from "@/components/ui";
 import { EmisorForm } from "@/components/emisores/EmisorForm";
 import type { EmisorInput } from "@/lib/emisores";
 
@@ -24,19 +26,28 @@ export default function NuevoEmisorPage() {
   }
 
   return (
-    <div className="max-w-xl space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-neutral-900">Nuevo emisor</h1>
-        <p className="mt-1 text-sm text-neutral-600">
-          Después de guardar podrás subir su certificado y configurar el PDF.
-        </p>
-      </div>
+    <div className="mx-auto max-w-3xl space-y-4">
+      <nav className="flex items-center gap-1.5 text-[12.5px] text-ink-3">
+        <Link href="/emisores" className="focus-brand rounded hover:text-brand">
+          Emisores
+        </Link>
+        <span aria-hidden>/</span>
+        <span className="font-medium text-ink-2">Nuevo emisor</span>
+      </nav>
 
-      <EmisorForm
-        initial={{ rfc: "", nombre: "", regimenFiscal: "", domicilioFiscal: "" }}
-        rfcEditable
-        onSubmit={handleSubmit}
-      />
+      <Card>
+        <CardHeader
+          title="Nuevo emisor"
+          description="Después de guardar podrás subir su certificado, crear series y configurar el PDF."
+        />
+        <CardBody>
+          <EmisorForm
+            initial={{ rfc: "", nombre: "", regimenFiscal: "", domicilioFiscal: "" }}
+            rfcEditable
+            onSubmit={handleSubmit}
+          />
+        </CardBody>
+      </Card>
     </div>
   );
 }

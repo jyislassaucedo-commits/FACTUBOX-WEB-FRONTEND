@@ -1,12 +1,51 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Design tokens
+   ---------------------------------------------------------------------------
+   Fuente unica de verdad del look. Los componentes NUNCA deben escribir
+   colores crudos (bg-white, text-neutral-900, border-neutral-200): usan las
+   utilidades generadas desde estos tokens (bg-surface, text-ink, border-line).
+   Asi el tema se cambia en un solo lugar.
+--------------------------------------------------------------------------- */
+
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0f1621;
 
   /* Marca (UI chrome: nav activo, botones primarios) - tomado del logo */
   --brand: #e54730;
   --brand-ink: #ffffff;
+  --brand-600: #cc3b26;
+  --brand-050: #fef1ed;
+  --brand-100: #fdd8ce;
+
+  /* Superficies y lineas */
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #fbfcfd;
+  --line: #e5e8ec;
+  --line-2: #eff1f4;
+
+  /* Texto, de mas a menos contraste */
+  --ink: #0f1621;
+  --ink-2: #4a5563;
+  --ink-3: #7c8794;
+  --ink-4: #a6aeb9;
+
+  /* Estados (par color + fondo suave) */
+  --ok: #0e9f6e;
+  --ok-bg: #e7f7f0;
+  --warn: #b45309;
+  --warn-bg: #fef3e2;
+  --danger: #d92d20;
+  --danger-bg: #feeceb;
+  --info: #2563eb;
+  --info-bg: #eaf1fe;
+  --violet: #7c3aed;
+  --violet-bg: #f2ecfe;
+  --teal: #0d9488;
+  --teal-bg: #e6f6f4;
 
   /* Paleta de datos (validada para daltonismo, ver skill dataviz) - solo
      para graficas, nunca para UI chrome. Orden fijo, nunca ciclar. */
@@ -24,20 +63,108 @@
   --chart-baseline: #c3c2b7;
 }
 
+/* Tema oscuro OPT-IN via <html data-theme="dark">. No se sigue
+   prefers-color-scheme: varias pantallas (dashboard, facturas, login) todavia
+   tienen colores fijos y se romperian. Ver REFACTOR.md, fase "dark mode". */
+[data-theme="dark"] {
+  --background: #0c1017;
+  --foreground: #edf1f6;
+
+  --brand: #ff6a4d;
+  --brand-ink: #1a0d09;
+  --brand-600: #ff8266;
+  --brand-050: #2a1712;
+  --brand-100: #3d2019;
+
+  --bg: #0c1017;
+  --surface: #141a23;
+  --surface-2: #1a212b;
+  --line: #252e3a;
+  --line-2: #1f2733;
+
+  --ink: #edf1f6;
+  --ink-2: #aeb8c4;
+  --ink-3: #8391a0;
+  --ink-4: #66727f;
+
+  --ok: #34d399;
+  --ok-bg: #0e2a22;
+  --warn: #fbbf24;
+  --warn-bg: #2c2110;
+  --danger: #f87171;
+  --danger-bg: #2e1616;
+  --info: #60a5fa;
+  --info-bg: #111e33;
+  --violet: #a78bfa;
+  --violet-bg: #1e1830;
+  --teal: #2dd4bf;
+  --teal-bg: #0d2624;
+
+  --chart-surface: #141a23;
+  --chart-ink: #edf1f6;
+  --chart-ink-secondary: #aeb8c4;
+  --chart-muted: #8391a0;
+  --chart-gridline: #252e3a;
+  --chart-baseline: #39434f;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+
+  --color-brand: var(--brand);
+  --color-brand-600: var(--brand-600);
+  --color-brand-050: var(--brand-050);
+  --color-brand-100: var(--brand-100);
+  --color-brand-ink: var(--brand-ink);
+
+  --color-ok: var(--ok);
+  --color-ok-bg: var(--ok-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-violet: var(--violet);
+  --color-violet-bg: var(--violet-bg);
+  --color-teal: var(--teal);
+  --color-teal-bg: var(--teal-bg);
+
+  --radius-card: 14px;
+
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-raised: 0 2px 8px rgb(16 24 40 / 0.06), 0 1px 2px rgb(16 24 40 / 0.04);
+  --shadow-pop: 0 12px 32px rgb(16 24 40 / 0.12), 0 2px 6px rgb(16 24 40 / 0.06);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-/* La interfaz por ahora es solo tema claro (fondos blancos/neutros fijos
-   en cada componente); no seguir prefers-color-scheme aqui evita que el
-   texto se vuelva claro sobre fondos claros cuando el SO esta en modo
-   oscuro. */
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Anillo de foco consistente en toda la app */
+@utility focus-brand {
+  outline: none;
+
+  &:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
 }

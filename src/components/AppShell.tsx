@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/LogoutButton";
+import { ToastProvider, cx } from "@/components/ui";
+import { EMISOR_SECTIONS, emisorHref, iniciales } from "@/lib/emisorNav";
 import type { CurrentUser } from "@/lib/currentUser";
 
 const NAV_ITEMS = [
@@ -12,6 +14,13 @@ const NAV_ITEMS = [
   { href: "/emisores", label: "Emisores" },
   { href: "/facturas", label: "Facturas" },
 ];
+
+/** RFC del emisor abierto, si el pathname es /emisores/<rfc>/... */
+function rfcDelPathname(pathname: string): string | null {
+  const m = /^\/emisores\/([^/]+)/.exec(pathname);
+  if (!m || m[1] === "nuevo") return null;
+  return decodeURIComponent(m[1]);
+}
 
 export function AppShell({
   user,
@@ -22,105 +31,256 @@ export function AppShell({
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const pathname = usePathname();
+  const rfcActual = rfcDelPathname(pathname);
 
   return (
-    <div className="min-h-screen bg-neutral-50">
-      {/* Barra superior: siempre visible, trae el boton de menu en movil */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-3 md:px-6">
-        <div className="flex items-center gap-3">
+    <ToastProvider>
+      <div className="min-h-screen bg-bg">
+        <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b border-line bg-surface/85 px-4 backdrop-blur-md md:px-6">
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
-            className="rounded-md p-1.5 text-neutral-600 hover:bg-neutral-100 md:hidden"
+            className="focus-brand rounded-lg p-1.5 text-ink-2 transition hover:bg-line-2 md:hidden"
             aria-label="Abrir menú"
           >
             <MenuIcon />
           </button>
-          <Image
-            src="/factubox-logo.png"
-            alt="Factubox"
-            width={4705}
-            height={960}
-            className="h-6 w-auto"
-            priority
-          />
-        </div>
 
-        <div className="hidden items-center gap-3 md:flex">
-          <span className="text-sm text-neutral-600">{user.Nombre}</span>
-          <LogoutButton />
-        </div>
-      </header>
+          <Link href="/" className="focus-brand shrink-0 rounded">
+            <Image
+              src="/factubox-logo.png"
+              alt="Factubox"
+              width={4705}
+              height={960}
+              className="h-6 w-auto"
+              priority
+            />
+          </Link>
 
-      <div className="mx-auto flex max-w-7xl">
-        {/* Sidebar: fija en escritorio */}
-        <aside className="hidden w-56 shrink-0 border-r border-neutral-200 bg-white p-4 md:block">
-          <Nav pathname={pathname} />
-        </aside>
+          <nav className="hidden items-center gap-1 md:flex">
+            {NAV_ITEMS.map((item) =>
+              item.href === "/emisores" ? (
+                <EmisoresMenu key={item.href} pathname={pathname} rfcActual={rfcActual} />
+              ) : (
+                <TopLink
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  active={
+                    item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
+                  }
+                />
+              )
+            )}
+          </nav>
 
-        {/* Drawer: solo en movil */}
+          <div className="ml-auto hidden items-center gap-2 md:flex">
+            <span className="flex items-center gap-2 rounded-full border border-line py-1 pl-1 pr-3">
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-ink text-[11px] font-bold text-background">
+                {iniciales(user.Nombre)}
+              </span>
+              <span className="text-xs font-medium text-ink-2">{user.Nombre}</span>
+            </span>
+            <LogoutButton />
+          </div>
+        </header>
+
         {mobileNavOpen && (
-          <div className="fixed inset-0 z-40 md:hidden">
+          <div className="fixed inset-0 z-50 md:hidden">
             <div
-              className="absolute inset-0 bg-black/30"
+              className="absolute inset-0 bg-black/40"
               onClick={() => setMobileNavOpen(false)}
             />
-            <div className="absolute left-0 top-0 h-full w-64 bg-white p-4 shadow-lg">
+            <div className="absolute left-0 top-0 h-full w-72 overflow-y-auto bg-surface p-4 shadow-pop">
               <div className="mb-4 flex items-center justify-between">
-                <span className="text-sm font-semibold text-neutral-900">
-                  Menú
-                </span>
+                <span className="text-sm font-semibold text-ink">Menú</span>
                 <button
                   type="button"
                   onClick={() => setMobileNavOpen(false)}
-                  className="rounded-md p-1.5 text-neutral-600 hover:bg-neutral-100"
+                  className="focus-brand rounded-lg p-1.5 text-ink-2 hover:bg-line-2"
                   aria-label="Cerrar menú"
                 >
                   <CloseIcon />
                 </button>
               </div>
-              <Nav pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
-              <div className="mt-6 border-t border-neutral-200 pt-4">
-                <p className="mb-2 text-sm text-neutral-600">{user.Nombre}</p>
+
+              <nav className="space-y-1">
+                {NAV_ITEMS.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileNavOpen(false)}
+                    className={cx(
+                      "block rounded-[10px] px-3 py-2 text-sm font-medium transition",
+                      (item.href === "/" ? pathname === "/" : pathname.startsWith(item.href))
+                        ? "bg-brand-050 text-brand-600"
+                        : "text-ink-2 hover:bg-line-2"
+                    )}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </nav>
+
+              {rfcActual && (
+                <div className="mt-5 border-t border-line pt-4">
+                  <p className="px-3 pb-2 text-[10.5px] font-bold uppercase tracking-[0.09em] text-ink-4">
+                    {rfcActual}
+                  </p>
+                  <nav className="space-y-1">
+                    {EMISOR_SECTIONS.map((section) => (
+                      <Link
+                        key={section.key}
+                        href={emisorHref(rfcActual, section.segment)}
+                        onClick={() => setMobileNavOpen(false)}
+                        className="block rounded-[10px] px-3 py-2 text-sm font-medium text-ink-2 transition hover:bg-line-2"
+                      >
+                        {section.label}
+                      </Link>
+                    ))}
+                  </nav>
+                </div>
+              )}
+
+              <div className="mt-6 border-t border-line pt-4">
+                <p className="mb-2 text-sm text-ink-2">{user.Nombre}</p>
                 <LogoutButton />
               </div>
             </div>
           </div>
         )}
 
-        <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
+        <main className="mx-auto min-w-0 max-w-[1480px] p-4 md:p-6">{children}</main>
       </div>
-    </div>
+    </ToastProvider>
   );
 }
 
-function Nav({
-  pathname,
-  onNavigate,
+function TopLink({
+  href,
+  label,
+  active,
 }: {
-  pathname: string;
-  onNavigate?: () => void;
+  href: string;
+  label: string;
+  active: boolean;
 }) {
   return (
-    <nav className="space-y-1">
-      {NAV_ITEMS.map((item) => {
-        const active = pathname === item.href;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={`block rounded-lg px-3 py-2 text-sm font-medium transition ${
-              active
-                ? "bg-[var(--brand)] text-[var(--brand-ink)]"
-                : "text-neutral-700 hover:bg-neutral-100"
-            }`}
-          >
-            {item.label}
-          </Link>
-        );
-      })}
-    </nav>
+    <Link
+      href={href}
+      className={cx(
+        "focus-brand rounded-[10px] px-3 py-1.5 text-sm font-medium transition",
+        active ? "bg-brand-050 text-brand-600" : "text-ink-2 hover:bg-line-2 hover:text-ink"
+      )}
+    >
+      {label}
+    </Link>
+  );
+}
+
+/**
+ * "Emisores" en la barra superior es un dropdown: si hay un emisor abierto,
+ * lista sus secciones (receptores, series y folios, disenos...) para saltar
+ * directo sin pasar por la pantalla del emisor.
+ */
+function EmisoresMenu({
+  pathname,
+  rfcActual,
+}: {
+  pathname: string;
+  rfcActual: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const active = pathname.startsWith("/emisores");
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cx(
+          "focus-brand flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-sm font-medium transition",
+          active ? "bg-brand-050 text-brand-600" : "text-ink-2 hover:bg-line-2 hover:text-ink"
+        )}
+      >
+        Emisores
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+          className={cx("transition", open && "rotate-180")}
+          aria-hidden
+        >
+          <path d="M1 3.5L5 7l4-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-0 top-[calc(100%+8px)] w-[520px] rounded-2xl border border-line bg-surface p-2.5 shadow-pop"
+        >
+          <div className="flex items-center justify-between border-b border-line-2 px-2 pb-2.5">
+            <span className="truncate text-[11px] font-bold uppercase tracking-[0.08em] text-ink-3">
+              {rfcActual ?? "Todos los emisores"}
+            </span>
+            <Link
+              href="/emisores"
+              onClick={() => setOpen(false)}
+              className="focus-brand rounded px-2 py-1 text-xs font-medium text-brand hover:underline"
+            >
+              {rfcActual ? "Cambiar emisor" : "Ver lista"}
+            </Link>
+          </div>
+
+          {rfcActual ? (
+            <div className="mt-1.5 grid grid-cols-2 gap-1">
+              {EMISOR_SECTIONS.map((section) => (
+                <Link
+                  key={section.key}
+                  href={emisorHref(rfcActual, section.segment)}
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                  className="focus-brand rounded-xl px-3 py-2.5 transition hover:bg-surface-2"
+                >
+                  <span className="block text-[13px] font-semibold text-ink">
+                    {section.label}
+                  </span>
+                  <span className="mt-0.5 block text-[11.5px] leading-snug text-ink-3">
+                    {section.description}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <p className="px-3 py-4 text-[13px] text-ink-3">
+              Abre un emisor para saltar directo a sus receptores, series o diseños.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

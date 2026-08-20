@@ -1,143 +1,188 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  ConfirmButton,
+  EmptyState,
+  useToast,
+} from "@/components/ui";
 import { CONFIG_PDF_DEFAULT, type ConfigPdfForm } from "@/lib/configPdfShared";
 import { ConfigPdfEditor } from "./ConfigPdfEditor";
 
 export function ConfigPdfSection({
   rfc,
   emisorNombre,
+  configs,
 }: {
   rfc: string;
   emisorNombre: string;
+  configs: ConfigPdfForm[];
 }) {
-  const [configs, setConfigs] = useState<ConfigPdfForm[]>([]);
-  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const toast = useToast();
   const [editando, setEditando] = useState<ConfigPdfForm | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  function cargar() {
-    fetch(`/api/empresas/${encodeURIComponent(rfc)}/config-pdf`)
-      .then((res) => res.json())
-      .then((body) => setConfigs(body.configs ?? []))
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(cargar, [rfc]);
+  const [borrando, setBorrando] = useState<string | null>(null);
 
   async function handleEliminar(nombre: string) {
-    setError(null);
-    const res = await fetch(`/api/empresas/${encodeURIComponent(rfc)}/config-pdf`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nombre }),
-    });
-    const body = await res.json();
+    setBorrando(nombre);
+    try {
+      const res = await fetch(`/api/empresas/${encodeURIComponent(rfc)}/config-pdf`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre }),
+      });
+      const body = await res.json();
 
-    if (!res.ok) {
-      setError(body.error ?? "No se pudo eliminar la configuración");
-      return;
+      if (!res.ok) {
+        toast(body.error ?? "No se pudo eliminar la configuración", "danger");
+        return;
+      }
+      toast("Diseño eliminado");
+      router.refresh();
+    } finally {
+      setBorrando(null);
     }
-    cargar();
   }
 
   if (editando) {
     return (
-      <div className="rounded-xl border border-neutral-200 bg-white p-4">
-        <h2 className="mb-4 text-sm font-semibold text-neutral-900">
-          {editando.nombre ? `Diseño: ${editando.nombre}` : "Nuevo diseño de PDF"}
-        </h2>
-        <ConfigPdfEditor
-          rfc={rfc}
-          emisorNombre={emisorNombre}
-          initial={editando}
-          nombreBloqueado={configs.some((c) => c.nombre === editando.nombre)}
-          onCancel={() => setEditando(null)}
-          onSaved={() => {
-            setEditando(null);
-            cargar();
-          }}
+      <Card>
+        <CardHeader
+          title={editando.nombre ? `Diseño: ${editando.nombre}` : "Nuevo diseño de PDF"}
+          description="Los colores y opciones se aplican al PDF que se genera al timbrar."
+          action={
+            <Button variant="ghost" onClick={() => setEditando(null)}>
+              Volver a la lista
+            </Button>
+          }
         />
-      </div>
+        <CardBody>
+          <ConfigPdfEditor
+            rfc={rfc}
+            emisorNombre={emisorNombre}
+            initial={editando}
+            nombreBloqueado={configs.some((c) => c.nombre === editando.nombre)}
+            onCancel={() => setEditando(null)}
+            onSaved={() => {
+              setEditando(null);
+              toast("Diseño guardado");
+              router.refresh();
+            }}
+          />
+        </CardBody>
+      </Card>
     );
   }
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-neutral-900">
-            Diseños del PDF de facturas
-          </h2>
-          <p className="mt-1 text-sm text-neutral-600">
-            Puedes tener varios diseños (con su propio logo) y elegir cuál usar al facturar.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setEditando({ ...CONFIG_PDF_DEFAULT })}
-          className="whitespace-nowrap rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100"
-        >
-          Nueva configuración
-        </button>
-      </div>
+    <Card>
+      <CardHeader
+        title="Diseños del PDF de facturas"
+        description="Puedes tener varios diseños (con su propio logo) y elegir cuál usar al facturar."
+        action={
+          <Button variant="primary" onClick={() => setEditando({ ...CONFIG_PDF_DEFAULT })}>
+            Nueva configuración
+          </Button>
+        }
+      />
 
-      {error && (
-        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-      )}
-
-      {loading ? (
-        <p className="mt-4 text-sm text-neutral-500">Cargando...</p>
-      ) : configs.length === 0 ? (
-        <p className="mt-4 text-sm text-neutral-500">Todavía no tienes ningún diseño.</p>
+      {configs.length === 0 ? (
+        <EmptyState
+          title="Todavía no tienes ningún diseño"
+          description="Sin diseño propio, el PDF sale con el estilo base del sistema."
+          action={
+            <Button variant="primary" onClick={() => setEditando({ ...CONFIG_PDF_DEFAULT })}>
+              Crear el primero
+            </Button>
+          }
+        />
       ) : (
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {configs.map((config) => (
-            <div
-              key={config.nombre}
-              className="flex items-center justify-between rounded-lg border border-neutral-200 p-3"
-            >
-              <button
-                type="button"
-                onClick={() => setEditando(config)}
-                className="flex items-center gap-3 text-left"
+        <CardBody>
+          <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
+            {configs.map((config) => (
+              <div
+                key={config.nombre}
+                className="group overflow-hidden rounded-xl border border-line bg-surface transition hover:-translate-y-0.5 hover:border-ink-4 hover:shadow-pop"
               >
-                {config.imagenBase64 ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={`data:image/png;base64,${config.imagenBase64}`}
-                    alt=""
-                    className="h-9 w-9 rounded object-contain"
-                  />
-                ) : (
-                  <div className="h-9 w-9 rounded bg-neutral-100" />
-                )}
-                <div>
-                  <p className="text-sm font-medium text-neutral-900">{config.nombre}</p>
-                  <div className="mt-1 flex gap-1">
-                    {[config.colorFondo, config.colorSeparador, config.colorTitulos].map(
-                      (c, i) => (
-                        <span
-                          key={i}
-                          className="h-3 w-3 rounded-full border border-neutral-200"
-                          style={{ background: c }}
-                        />
-                      )
-                    )}
+                <button
+                  type="button"
+                  onClick={() => setEditando(config)}
+                  className="focus-brand block w-full text-left"
+                  aria-label={`Editar diseño ${config.nombre}`}
+                >
+                  <MiniaturaPdf config={config} />
+                </button>
+                <div className="flex items-center justify-between gap-2 border-t border-line-2 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-semibold text-ink">
+                      {config.nombre}
+                    </p>
+                    <div className="mt-1 flex gap-1" aria-hidden>
+                      {[config.colorFondo, config.colorSeparador, config.colorTitulos].map(
+                        (c, i) => (
+                          <span
+                            key={i}
+                            className="h-2.5 w-2.5 rounded-full border border-line"
+                            style={{ background: c }}
+                          />
+                        )
+                      )}
+                    </div>
                   </div>
+                  <ConfirmButton
+                    pending={borrando === config.nombre}
+                    onConfirm={() => handleEliminar(config.nombre)}
+                  />
                 </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleEliminar(config.nombre)}
-                className="text-xs font-medium text-red-600 hover:underline"
-              >
-                Eliminar
-              </button>
-            </div>
-          ))}
-        </div>
+              </div>
+            ))}
+          </div>
+        </CardBody>
       )}
+    </Card>
+  );
+}
+
+/**
+ * Boceto del PDF con los colores reales del diseño: da una idea del resultado
+ * sin tener que generar el PDF completo (eso es el editor con PdfPreview).
+ */
+function MiniaturaPdf({ config }: { config: ConfigPdfForm }) {
+  return (
+    <div className="flex h-32 flex-col gap-1.5 bg-surface-2 p-3">
+      <div className="flex items-start gap-2">
+        {config.imagenBase64 ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={`data:image/png;base64,${config.imagenBase64}`}
+            alt=""
+            className="h-6 w-12 rounded object-contain"
+          />
+        ) : (
+          <span
+            className="h-3.5 w-16 rounded-sm"
+            style={{ background: config.colorTitulos }}
+          />
+        )}
+        <span className="ml-auto h-2 w-10 rounded-sm bg-line" />
+      </div>
+      <span className="h-1.5 w-3/5 rounded-sm bg-line" />
+      <span
+        className="h-[3px] w-full rounded-sm"
+        style={{ background: config.colorSeparador }}
+      />
+      <span className="h-1.5 w-full rounded-sm" style={{ background: config.colorFondo }} />
+      <span className="h-1.5 w-11/12 rounded-sm bg-line" />
+      <span className="h-1.5 w-4/5 rounded-sm bg-line" />
+      <span
+        className="mt-auto h-2 w-1/3 self-end rounded-sm"
+        style={{ background: config.colorTitulos }}
+      />
     </div>
   );
 }
