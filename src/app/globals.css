@@ -3,6 +3,25 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Marca (UI chrome: nav activo, botones primarios) - tomado del logo */
+  --brand: #e54730;
+  --brand-ink: #ffffff;
+
+  /* Paleta de datos (validada para daltonismo, ver skill dataviz) - solo
+     para graficas, nunca para UI chrome. Orden fijo, nunca ciclar. */
+  --series-1: #2a78d6; /* azul   - Ingreso */
+  --series-2: #eb6834; /* naranja- Egreso  */
+  --series-3: #1baf7a; /* aqua   - Nomina  */
+  --series-4: #eda100; /* amarillo - Pago  */
+  --series-5: #e87ba4; /* magenta- Traslado*/
+
+  --chart-surface: #fcfcfb;
+  --chart-ink: #0b0b0b;
+  --chart-ink-secondary: #52514e;
+  --chart-muted: #898781;
+  --chart-gridline: #e1e0d9;
+  --chart-baseline: #c3c2b7;
 }
 
 @theme inline {

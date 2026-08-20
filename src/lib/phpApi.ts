@@ -22,3 +22,20 @@ export async function callPhpApi<T = Record<string, unknown>>(
   const data = await res.json();
   return data as PhpResponse<T>;
 }
+
+// Los endpoints legacy (no exclusivos de la web) leen $_REQUEST, que no
+// entiende un body JSON crudo - necesitan form-urlencoded.
+export async function callLegacyPhpApi<T = Record<string, unknown>>(
+  path: string,
+  body: Record<string, string>
+): Promise<PhpResponse<T>> {
+  const res = await fetch(`${PHP_API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(body).toString(),
+    cache: "no-store",
+  });
+
+  const data = await res.json();
+  return data as PhpResponse<T>;
+}
