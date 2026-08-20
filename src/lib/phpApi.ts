@@ -60,3 +60,13 @@ export async function callLegacyPhpApiFormData<T = Record<string, unknown>>(
   const data = await res.json();
   return data as PhpResponse<T>;
 }
+
+// Descarga un archivo estatico del sitio PHP (hoy, las fotos de perfil).
+//
+// Existe para que el navegador no necesite conocer PHP_API_BASE_URL: pide
+// /api/cuenta/imagen y el BFF trae los bytes. Quien llame DEBE validar la
+// ruta contra una lista blanca; si no, esto es un SSRF hacia cualquier ruta
+// del host PHP.
+export async function fetchPhpAsset(path: string): Promise<Response> {
+  return fetch(`${PHP_API_BASE_URL}${path}`, { cache: "no-store" });
+}

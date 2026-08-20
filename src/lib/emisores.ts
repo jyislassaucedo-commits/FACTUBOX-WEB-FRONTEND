@@ -1,9 +1,11 @@
 import {
   callLegacyPhpApi,
   callLegacyPhpApiFormData,
+  callPhpApi,
   type PhpResponse,
 } from "./phpApi";
 import { getSession } from "./session";
+import type { EstatusEmisor } from "./emisoresShared";
 
 export type Emisor = {
   Rfc: string;
@@ -37,6 +39,15 @@ export type EmisorInput = {
   domicilioFiscal: string;
   logoBase64?: string; // sin el prefijo data:...;base64,
   logoExtension?: string; // ej. ".png"
+  /**
+   * Estatus actual del emisor, para CONSERVARLO al editar.
+   *
+   * No es un campo que el formulario ofrezca: setEmpresaV2.php hace
+   * setStatus("ACTIVADO") por defecto y solo lo respeta si el JSON trae
+   * "Estatus". Sin esto, guardar el nombre de un emisor desactivado lo
+   * reactivaba en silencio. En alta se omite y el default es el correcto.
+   */
+  estatus?: string;
 };
 
 export async function getEmisores(): Promise<Emisor[]> {
@@ -71,7 +82,7 @@ export async function saveEmisor(
   const session = await getSession();
   if (!session) return { Error: "1", DescripError: "No autenticado" };
 
-  const datosJSON = {
+  const datosJSON: Record<string, string> = {
     Rfc: input.rfc,
     Nombre: input.nombre,
     RegimenFiscal: input.regimenFiscal,
@@ -79,11 +90,38 @@ export async function saveEmisor(
     Logo: input.logoBase64 ?? "",
     ExtensionLogo: input.logoExtension ?? "",
   };
+
+  // Solo se manda si viene: en alta no hay estatus previo que conservar y el
+  // default "ACTIVADO" del PHP es justo lo que se quiere.
+  if (input.estatus) {
+    datosJSON.Estatus = input.estatus;
+  }
+
   const datosJSON64 = Buffer.from(JSON.stringify(datosJSON)).toString("base64");
 
   return callLegacyPhpApi<{ Usuario: number; Token: string }>(
     "/maa/mvc/Empresa/api/setEmpresaV2.php",
     { Token: session.token, DatosJSON: datosJSON64 }
+  );
+}
+
+/**
+ * Activa o desactiva un emisor.
+ *
+ * Va contra el endpoint web nuevo y no contra setEmpresaV2.php: ese exige el
+ * JSON completo del emisor y escribe con DAO_EMPRESA::edit(), que reescribe la
+ * fila entera incluyendo el CSD. Aqui solo se mueve una columna.
+ */
+export async function cambiarEstatusEmisor(
+  rfc: string,
+  estatus: EstatusEmisor
+): Promise<PhpResponse<{ Rfc: string; Estatus: string; Cambio: "SI" | "NO" }>> {
+  const session = await getSession();
+  if (!session) return { Error: "1", DescripError: "No autenticado" };
+
+  return callPhpApi<{ Rfc: string; Estatus: string; Cambio: "SI" | "NO" }>(
+    "/endpoint/web/estatusEmisorWeb.php",
+    { SessionToken: session.token, Rfc: rfc, Estatus: estatus }
   );
 }
 

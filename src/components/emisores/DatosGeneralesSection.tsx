@@ -13,7 +13,11 @@ export function DatosGeneralesSection({ emisor }: { emisor: EmisorDetalle }) {
     const res = await fetch("/api/empresas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(values),
+      // Se reenvía el estatus actual. setEmpresaV2.php hace
+      // setStatus("ACTIVADO") salvo que el JSON traiga "Estatus", así que sin
+      // esto guardar el nombre de un emisor desactivado lo reactivaba en
+      // silencio. El formulario no expone el campo: solo lo conserva.
+      body: JSON.stringify({ ...values, estatus: emisor.Estatus }),
     });
     const body = await res.json();
 

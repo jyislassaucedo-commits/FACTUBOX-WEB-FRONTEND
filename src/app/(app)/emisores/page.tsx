@@ -8,13 +8,17 @@ import {
   EmptyState,
   Pill,
   SearchInput,
+  RowActions,
   Table,
   Td,
   Th,
   Toolbar,
   buttonClass,
+  cx,
 } from "@/components/ui";
 import { formatoFecha, diasRestantes, iniciales } from "@/lib/emisorNav";
+import { EstatusEmisorAccion } from "@/components/emisores/EstatusEmisorAccion";
+import { emisorEstaActivo, etiquetaEstatusEmisor } from "@/lib/emisoresShared";
 import type { Emisor } from "@/lib/emisores";
 
 export default function EmisoresPage() {
@@ -34,6 +38,20 @@ export default function EmisoresPage() {
     if (!query) return emisores;
     return emisores.filter((e) => `${e.Nombre} ${e.Rfc}`.toLowerCase().includes(query));
   }, [emisores, q]);
+
+  /**
+   * Actualiza en sitio el emisor que cambio de estatus.
+   *
+   * Esta pantalla carga los emisores con un fetch en useEffect, asi que un
+   * router.refresh() no volveria a pedirlos. Reemplazar solo la fila afectada
+   * tambien conserva el scroll y el texto de busqueda, que es lo que uno
+   * espera al desactivar el quinto emisor de una lista larga.
+   */
+  function aplicarEstatus(rfc: string, estatusNuevo: string) {
+    setEmisores((previos) =>
+      previos.map((e) => (e.Rfc === rfc ? { ...e, Estatus: estatusNuevo } : e))
+    );
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -87,13 +105,25 @@ export default function EmisoresPage() {
                 <Th>Emisor</Th>
                 <Th>Estatus</Th>
                 <Th>CSD vigente hasta</Th>
+                <Th className="text-right">Acciones</Th>
               </tr>
             </thead>
             <tbody>
               {filtrados.map((emisor) => {
                 const dias = emisor.Cert ? diasRestantes(emisor.VigenciaCert) : null;
+                const activo = emisorEstaActivo(emisor.Estatus);
                 return (
-                  <tr key={emisor.Rfc} className="transition hover:bg-surface-2">
+                  <tr
+                    key={emisor.Rfc}
+                    // "group" alimenta el hover de RowActions. La fila
+                    // desactivada se atenua para que se distinga de un vistazo
+                    // en una lista larga, pero el texto se mantiene legible:
+                    // sigue siendo informacion, no un elemento deshabilitado.
+                    className={cx(
+                      "group transition hover:bg-surface-2",
+                      !activo && "opacity-70"
+                    )}
+                  >
                     <Td>
                       <Link
                         href={`/emisores/${encodeURIComponent(emisor.Rfc)}`}
@@ -116,8 +146,8 @@ export default function EmisoresPage() {
                       </Link>
                     </Td>
                     <Td>
-                      <Pill tone={emisor.Estatus === "ACTIVADO" ? "ok" : "neutral"}>
-                        {emisor.Estatus === "ACTIVADO" ? "Activo" : emisor.Estatus}
+                      <Pill tone={activo ? "ok" : "neutral"}>
+                        {etiquetaEstatusEmisor(emisor.Estatus)}
                       </Pill>
                     </Td>
                     <Td>
@@ -137,6 +167,29 @@ export default function EmisoresPage() {
                         </Pill>
                       ) : (
                         <Pill tone="danger">Sin certificado</Pill>
+                      )}
+                    </Td>
+                    <Td>
+                      {/* Un emisor desactivado deja su boton siempre visible:
+                          si estuviera oculto tras el hover, reactivarlo seria
+                          un juego de adivinanzas. El de desactivar sigue la
+                          convencion de la app y aparece al pasar el mouse. */}
+                      {activo ? (
+                        <RowActions>
+                          <EstatusEmisorAccion
+                            rfc={emisor.Rfc}
+                            estatus={emisor.Estatus}
+                            onCambio={(nuevo) => aplicarEstatus(emisor.Rfc, nuevo)}
+                          />
+                        </RowActions>
+                      ) : (
+                        <div className="flex justify-end">
+                          <EstatusEmisorAccion
+                            rfc={emisor.Rfc}
+                            estatus={emisor.Estatus}
+                            onCambio={(nuevo) => aplicarEstatus(emisor.Rfc, nuevo)}
+                          />
+                        </div>
                       )}
                     </Td>
                   </tr>

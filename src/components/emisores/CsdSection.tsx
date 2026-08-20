@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useProgresoManual } from "@/components/carga/useAccionServidor";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -59,6 +60,8 @@ export function CsdSection({
   const vencido = dias !== null && dias < 0;
   const porVencer = dias !== null && dias >= 0 && dias < 30;
 
+  const progreso = useProgresoManual();
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -71,6 +74,10 @@ export function CsdSection({
     }
 
     setSaving(true);
+    // Bloqueante y en dos tramos: el mensaje cambia de "validando" a
+    // "subiendo" porque son dos viajes al servidor con causas de falla
+    // distintas. Si el usuario ve un error, ya sabe en cual de los dos fue.
+    let terminarProgreso = progreso("Validando el certificado…", true);
     try {
       // 1) Validar estructura/password SIN persistir, para detectar de una
       // vez si el certificado corresponde a este emisor y obtener la razon
@@ -110,6 +117,9 @@ export function CsdSection({
       }
 
       // 2) Subir y persistir de verdad.
+      terminarProgreso();
+      terminarProgreso = progreso("Subiendo el certificado…", true);
+
       const formData = new FormData();
       formData.append("token", token);
       formData.append("pass", pass);
@@ -136,6 +146,7 @@ export function CsdSection({
     } catch {
       setError("No se pudo conectar con el servidor");
     } finally {
+      terminarProgreso();
       setSaving(false);
     }
   }

@@ -9,6 +9,25 @@ export type CurrentUser = {
   Nombre: string;
   Tipo: string;
   EsSubusuario: "SI" | "NO";
+  /**
+   * Ruta de la foto en el sitio PHP ("/img/usuarios/..."), null si no tiene.
+   * Viene en authMeWeb para que el avatar del encabezado no cueste una
+   * llamada extra en cada pantalla.
+   */
+  ImagenUrl: string | null;
+  /**
+   * IMEI de la licencia de la cuenta, null si no tiene una registrada.
+   *
+   * Es el mismo que muestra la app de escritorio al iniciar sesion: sirve para
+   * que el usuario lo dicte a soporte sin abrir la otra aplicacion. Para un
+   * subusuario es el de su titular, porque la licencia es de la cuenta.
+   *
+   * Viaja en authMeWeb por la misma razon que ImagenUrl: el encabezado ya
+   * llamaba a ese endpoint en cada pantalla, asi que no cuesta una peticion
+   * extra. Es opcional en el tipo porque una respuesta de un PHP todavia sin
+   * actualizar no trae el campo.
+   */
+  Imei?: string | null;
 };
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {

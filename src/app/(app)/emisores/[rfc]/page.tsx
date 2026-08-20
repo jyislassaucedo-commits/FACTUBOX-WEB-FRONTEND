@@ -9,6 +9,7 @@ import {
   tipoSerie,
 } from "@/lib/emisorNav";
 import { TIPO_LABELS, TIPO_ORDEN } from "@/lib/reportesUtils";
+import { EstatusEmisorCard } from "@/components/emisores/EstatusEmisorCard";
 
 export default async function EmisorResumenPage({
   params,
@@ -227,7 +228,6 @@ export default async function EmisorResumenPage({
           <CardBody className="py-1">
             <Dato etiqueta="Régimen fiscal" valor={emisor.Regimen} />
             <Dato etiqueta="Lugar de expedición" valor={emisor.LugarExp} mono />
-            <Dato etiqueta="Estatus" valor={emisor.Estatus} />
             <Dato
               etiqueta="Vigencia del CSD"
               valor={
@@ -242,6 +242,8 @@ export default async function EmisorResumenPage({
             <Dato etiqueta="Diseños de PDF" valor={String(configs.length)} />
           </CardBody>
         </Card>
+
+        <EstatusEmisorCard rfc={emisor.Rfc} estatus={emisor.Estatus} />
 
         {porTipo.length > 0 && (
           <Card>

@@ -7,9 +7,11 @@ import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/LogoutButton";
 import { UserMenu, UserMenuMovil } from "@/components/UserMenu";
 import { ToastProvider, cx } from "@/components/ui";
+import { ProgresoProvider } from "@/components/carga/ProgresoProvider";
+import { BarraProgreso } from "@/components/carga/BarraProgreso";
+import { PantallaBloqueante } from "@/components/carga/PantallaBloqueante";
 import { EMISOR_SECTIONS, emisorHref } from "@/lib/emisorNav";
 import { TimbresBadge } from "@/components/TimbresBadge";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import type { CurrentUser } from "@/lib/currentUser";
 import type { Timbres } from "@/lib/timbresShared";
 
@@ -41,9 +43,12 @@ export function AppShell({
   const rfcActual = rfcDelPathname(pathname);
 
   return (
-    <ToastProvider>
-      <div className="min-h-screen bg-bg">
+    <ProgresoProvider>
+      <ToastProvider>
+        <div className="min-h-screen bg-bg">
         <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b border-line bg-surface/85 px-4 backdrop-blur-md md:px-6">
+          <BarraProgreso />
+
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
@@ -83,7 +88,6 @@ export function AppShell({
 
           <div className="ml-auto flex items-center gap-2">
             {timbres && <TimbresBadge timbres={timbres} />}
-            <ThemeToggle />
           </div>
 
           <div className="hidden items-center md:flex">
@@ -105,17 +109,14 @@ export function AppShell({
             <div className="absolute left-0 top-0 h-full w-72 overflow-y-auto bg-surface p-4 shadow-pop">
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-sm font-semibold text-ink">Menú</span>
-                <div className="flex items-center gap-1">
-                  <ThemeToggle />
-                  <button
-                    type="button"
-                    onClick={() => setMobileNavOpen(false)}
-                    className="focus-brand rounded-lg p-1.5 text-ink-2 hover:bg-line-2"
-                    aria-label="Cerrar menú"
-                  >
-                    <CloseIcon />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileNavOpen(false)}
+                  className="focus-brand rounded-lg p-1.5 text-ink-2 hover:bg-line-2"
+                  aria-label="Cerrar menú"
+                >
+                  <CloseIcon />
+                </button>
               </div>
 
               <nav className="space-y-1">
@@ -176,8 +177,11 @@ export function AppShell({
         )}
 
         <main className="mx-auto min-w-0 max-w-[1480px] p-4 md:p-6">{children}</main>
-      </div>
-    </ToastProvider>
+        </div>
+
+        <PantallaBloqueante />
+      </ToastProvider>
+    </ProgresoProvider>
   );
 }
 

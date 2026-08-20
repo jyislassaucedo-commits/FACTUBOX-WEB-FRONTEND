@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useProgresoManual } from "@/components/carga/useAccionServidor";
 import Link from "next/link";
 import {
   Button,
@@ -91,6 +92,7 @@ export function NuevaFacturaWizard({
   const [modalRelacion, setModalRelacion] = useState(false);
   const [modalReceptor, setModalReceptor] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  const progreso = useProgresoManual();
   const [errorEnvio, setErrorEnvio] = useState<string | null>(null);
   const [resultado, setResultado] = useState<TimbrarResult | null>(null);
 
@@ -246,6 +248,10 @@ export function NuevaFacturaWizard({
     if (!emisor || !receptorActual) return;
 
     setEnviando(true);
+    // Bloqueante: timbrar consume un folio y un timbre ante el SAT. Un segundo
+    // clic no es una molestia, es una factura duplicada que hay que cancelar.
+    // La pantalla completa existe para que ese clic no sea posible.
+    const terminarProgreso = progreso("Timbrando ante el SAT…", true);
     try {
       const res = await fetch("/api/facturas", {
         method: "POST",
@@ -286,6 +292,7 @@ export function NuevaFacturaWizard({
     } catch {
       setErrorEnvio("No se pudo conectar con el servidor");
     } finally {
+      terminarProgreso();
       setEnviando(false);
     }
   }
