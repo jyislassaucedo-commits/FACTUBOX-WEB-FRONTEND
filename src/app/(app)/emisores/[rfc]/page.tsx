@@ -97,10 +97,7 @@ export default function EmisorDetallePage({
         rfc={emisor.Rfc}
         token={emisor.Token}
         vigenciaActual={emisor.VigenciaCert}
-        tieneCsd={emisor.InicioCert !== "NA"}
-        onUploaded={(vigencia) =>
-          setEmisor({ ...emisor, VigenciaCert: vigencia, InicioCert: vigencia })
-        }
+        onUploaded={(vigencia) => setEmisor({ ...emisor, VigenciaCert: vigencia })}
         onRazonSocial={setSugerenciaNombre}
       />
 

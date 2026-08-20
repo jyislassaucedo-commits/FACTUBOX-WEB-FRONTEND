@@ -1,38 +1,41 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export function CsdSection({
   rfc,
   token,
   vigenciaActual,
-  tieneCsd,
   onUploaded,
   onRazonSocial,
 }: {
   rfc: string;
   token: string;
   vigenciaActual: string;
-  // El backend deja VigenciaCert con la fecha de alta del emisor aunque
-  // nunca se haya subido un CSD real - InicioCert ("NA" si no hay archivo
-  // en disco) es la unica senal confiable de si ya existe un certificado.
-  tieneCsd: boolean;
   onUploaded: (vigencia: string) => void;
   onRazonSocial: (razonSocial: string) => void;
 }) {
+  // null = todavia verificando. Fuente de verdad: existeCSDV2 (revisa los
+  // archivos .cer/.key en disco directamente), no VigenciaCert (el backend
+  // le pone una fecha placeholder al crear el emisor aunque no haya CSD).
+  const [tieneCsd, setTieneCsd] = useState<boolean | null>(null);
   const [csdFile, setCsdFile] = useState<File | null>(null);
   const [keyFile, setKeyFile] = useState<File | null>(null);
   const [pass, setPass] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/empresas/${encodeURIComponent(rfc)}/csd?token=${encodeURIComponent(token)}`)
+      .then((res) => res.json())
+      .then((body) => setTieneCsd(Boolean(body.existe)));
+  }, [rfc, token]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setWarning(null);
-    setSuccess(null);
 
     if (!csdFile || !keyFile || !pass) {
       setError("Selecciona el .cer, el .key y escribe la contraseña.");
@@ -91,10 +94,10 @@ export function CsdSection({
         return;
       }
 
-      setSuccess(`Certificado válido hasta ${body.VigenciaCertificados}`);
       setPass("");
       setCsdFile(null);
       setKeyFile(null);
+      setTieneCsd(true);
       onUploaded(body.VigenciaCertificados);
       if (body.RazonSocial) {
         onRazonSocial(body.RazonSocial);
@@ -107,76 +110,129 @@ export function CsdSection({
   }
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-neutral-900">
-        Certificado de sello digital (CSD)
-      </h2>
-      <p className="mt-1 text-sm text-neutral-600">
-        {tieneCsd
-          ? `Vigente hasta ${vigenciaActual}.`
-          : "Este emisor todavía no tiene un certificado cargado."}
-      </p>
+    <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
+      <div className="p-4">
+        <h2 className="text-sm font-semibold text-neutral-900">
+          Certificado de sello digital (CSD)
+        </h2>
 
-      <form onSubmit={handleSubmit} className="mt-4 space-y-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+          <div
+            className={`grid grid-cols-1 gap-3 rounded-lg p-3 sm:grid-cols-2 ${
+              tieneCsd ? "border-2 border-green-500 bg-green-50/40" : "border border-neutral-200"
+            }`}
+          >
+            <div>
+              <label className="mb-1 flex items-center gap-1 text-xs font-medium text-neutral-600">
+                Archivo .cer
+                {tieneCsd && <CheckIcon />}
+              </label>
+              <input
+                type="file"
+                accept=".cer"
+                onChange={(e) => setCsdFile(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm text-neutral-600"
+              />
+            </div>
+            <div>
+              <label className="mb-1 flex items-center gap-1 text-xs font-medium text-neutral-600">
+                Archivo .key
+                {tieneCsd && <CheckIcon />}
+              </label>
+              <input
+                type="file"
+                accept=".key"
+                onChange={(e) => setKeyFile(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm text-neutral-600"
+              />
+            </div>
+          </div>
+
           <div>
             <label className="mb-1 block text-xs font-medium text-neutral-600">
-              Archivo .cer
+              Contraseña de la llave privada
             </label>
             <input
-              type="file"
-              accept=".cer"
-              onChange={(e) => setCsdFile(e.target.files?.[0] ?? null)}
-              className="block w-full text-sm text-neutral-600"
+              type="password"
+              value={pass}
+              onChange={(e) => setPass(e.target.value)}
+              placeholder={tieneCsd ? "Solo si vas a reemplazar el certificado" : ""}
+              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-500 sm:w-64"
             />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-600">
-              Archivo .key
-            </label>
-            <input
-              type="file"
-              accept=".key"
-              onChange={(e) => setKeyFile(e.target.files?.[0] ?? null)}
-              className="block w-full text-sm text-neutral-600"
-            />
-          </div>
-        </div>
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-600">
-            Contraseña de la llave privada
-          </label>
-          <input
-            type="password"
-            value={pass}
-            onChange={(e) => setPass(e.target.value)}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-500 sm:w-64"
-          />
-        </div>
+          {error && (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+          )}
+          {warning && (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              {warning}
+            </p>
+          )}
 
-        {error && (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-        )}
-        {warning && (
-          <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
-            {warning}
-          </p>
-        )}
-        {success && (
-          <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
-            {success}
-          </p>
-        )}
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-50"
+          >
+            {saving
+              ? "Validando y subiendo..."
+              : tieneCsd
+                ? "Reemplazar certificado"
+                : "Subir certificado"}
+          </button>
+        </form>
+      </div>
 
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-50"
-        >
-          {saving ? "Validando y subiendo..." : "Subir certificado"}
-        </button>
-      </form>
+      <StatusBanner tieneCsd={tieneCsd} vigenciaActual={vigenciaActual} />
     </div>
+  );
+}
+
+function StatusBanner({
+  tieneCsd,
+  vigenciaActual,
+}: {
+  tieneCsd: boolean | null;
+  vigenciaActual: string;
+}) {
+  if (tieneCsd === null) {
+    return (
+      <p className="bg-neutral-100 px-4 py-2 text-center text-sm text-neutral-500">
+        Verificando certificado...
+      </p>
+    );
+  }
+
+  if (tieneCsd) {
+    return (
+      <p className="flex items-center justify-center gap-2 bg-green-600 px-4 py-2 text-center text-sm font-medium text-white">
+        <CheckIcon white />
+        El CSD se encuentra cargado correctamente
+        {vigenciaActual && ` · Vigente hasta ${vigenciaActual}`}
+      </p>
+    );
+  }
+
+  return (
+    <p className="bg-neutral-100 px-4 py-2 text-center text-sm text-neutral-600">
+      Este emisor todavía no tiene un certificado cargado.
+    </p>
+  );
+}
+
+function CheckIcon({ white }: { white?: boolean }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      className={white ? "text-white" : "text-green-600"}
+    >
+      <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
