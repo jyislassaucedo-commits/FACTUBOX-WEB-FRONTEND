@@ -42,10 +42,10 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
       <div className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-8 shadow-sm">
         <Image
-          src="/logo-horizontal.png"
-          alt="Cajero Punto de Venta"
-          width={200}
-          height={50}
+          src="/factubox-logo.png"
+          alt="Factubox"
+          width={4705}
+          height={960}
           className="mx-auto mb-6 h-auto w-48"
           priority
         />
