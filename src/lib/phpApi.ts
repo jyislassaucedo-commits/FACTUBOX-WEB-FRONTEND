@@ -39,3 +39,20 @@ export async function callLegacyPhpApi<T = Record<string, unknown>>(
   const data = await res.json();
   return data as PhpResponse<T>;
 }
+
+// Para endpoints legacy que reciben archivos ($_FILES) ademas de campos de
+// texto - reenvia el FormData tal cual, sin tocarlo (fetch en Node arma el
+// boundary multipart correcto solo).
+export async function callLegacyPhpApiFormData<T = Record<string, unknown>>(
+  path: string,
+  formData: FormData
+): Promise<PhpResponse<T>> {
+  const res = await fetch(`${PHP_API_BASE_URL}${path}`, {
+    method: "POST",
+    body: formData,
+    cache: "no-store",
+  });
+
+  const data = await res.json();
+  return data as PhpResponse<T>;
+}
