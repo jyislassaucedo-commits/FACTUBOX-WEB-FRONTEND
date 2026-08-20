@@ -37,15 +37,19 @@ import {
 } from "./DashboardCharts";
 import type { DashboardData, DashboardFilters } from "@/lib/reportes";
 import type { Emisor } from "@/lib/emisores";
+import { TIMBRES_BAJOS, type Timbres } from "@/lib/timbresShared";
 
 export function DashboardView({
   data,
   emisores,
   filtros,
+  timbres,
 }: {
   data: DashboardData;
   emisores: Emisor[];
   filtros: DashboardFilters;
+  /** Saldo de la cuenta; null si no se pudo consultar. */
+  timbres: Timbres | null;
 }) {
   const router = useRouter();
   const [pendiente, startTransition] = useTransition();
@@ -378,10 +382,51 @@ export function DashboardView({
         <div className="grid items-start gap-4 xl:grid-cols-2">
           <Card>
             <CardHeader
-              title="Timbres del ejercicio"
-              description={`Consumo en ${filtros.anio}, por emisor.`}
+              title="Timbres"
+              description={`Saldo de la cuenta y consumo en ${filtros.anio}.`}
+              action={
+                timbres ? (
+                  <Pill
+                    tone={
+                      timbres.disponibles <= 0
+                        ? "danger"
+                        : timbres.disponibles <= TIMBRES_BAJOS
+                          ? "warn"
+                          : "ok"
+                    }
+                  >
+                    {timbres.disponibles} disponibles
+                  </Pill>
+                ) : undefined
+              }
             />
             <CardBody className="space-y-2">
+              {timbres && (
+                <>
+                  <p
+                    className={cx(
+                      "text-3xl font-bold leading-none tracking-tight",
+                      timbres.disponibles <= 0
+                        ? "text-danger"
+                        : timbres.disponibles <= TIMBRES_BAJOS
+                          ? "text-warn"
+                          : "text-ink"
+                    )}
+                  >
+                    {timbres.disponibles}
+                  </p>
+                  <p className="pb-2 text-[11.5px] text-ink-3">
+                    timbres disponibles para toda la cuenta
+                  </p>
+                  {timbres.disponibles <= TIMBRES_BAJOS && (
+                    <Note tone={timbres.disponibles <= 0 ? "danger" : "warn"}>
+                      {timbres.disponibles <= 0
+                        ? "Sin timbres no puedes emitir ni cancelar. Contacta a tu distribuidor."
+                        : "Te quedan pocos timbres: conviene recargar antes de que se acaben."}
+                    </Note>
+                  )}
+                </>
+              )}
               <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-line-2 py-2">
                 <span className="text-[13px] text-ink-3">Usados en timbrado</span>
                 <span className="font-mono tabular-nums text-[13px] font-semibold text-ink">

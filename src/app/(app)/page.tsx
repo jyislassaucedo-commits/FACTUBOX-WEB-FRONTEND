@@ -4,6 +4,7 @@ import Link from "next/link";
 import { DashboardView } from "@/components/dashboard/DashboardView";
 import { getDashboardData, type DashboardFilters } from "@/lib/reportes";
 import { getEmisores } from "@/lib/emisores";
+import { getTimbres } from "@/lib/timbres";
 
 /**
  * Los filtros del tablero viven en la URL (`/?rfc=&anio=&mes=&tipo=`), no en
@@ -37,9 +38,12 @@ export default async function InicioPage({
 }) {
   const filtros = leerFiltros(await searchParams);
 
-  const [data, emisores] = await Promise.all([
+  // getTimbres va memoizado con cache(): el layout ya lo pidió en este mismo
+  // render, así que el backend recibe una sola llamada.
+  const [data, emisores, timbres] = await Promise.all([
     getDashboardData(filtros),
     getEmisores(),
+    getTimbres(),
   ]);
 
   if (!data) {
@@ -67,7 +71,12 @@ export default async function InicioPage({
         </Link>
       </div>
 
-      <DashboardView data={data} emisores={emisores} filtros={filtros} />
+      <DashboardView
+        data={data}
+        emisores={emisores}
+        filtros={filtros}
+        timbres={timbres}
+      />
     </div>
   );
 }

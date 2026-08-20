@@ -41,8 +41,15 @@ import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
 import type { Serie } from "@/lib/series";
 import type { TimbrarResult } from "@/lib/timbrado";
+import { TIMBRES_BAJOS, type Timbres } from "@/lib/timbresShared";
 
-export function NuevaFacturaWizard({ emisores }: { emisores: Emisor[] }) {
+export function NuevaFacturaWizard({
+  emisores,
+  timbres,
+}: {
+  emisores: Emisor[];
+  timbres: Timbres | null;
+}) {
   const toast = useToast();
 
   const [borrador, setBorrador] = useState<FacturaBorrador>(() => ({
@@ -169,6 +176,14 @@ export function NuevaFacturaWizard({ emisores }: { emisores: Emisor[] }) {
   const indiceActual = PASOS.findIndex((p) => p.id === pasoActual);
   const problemasPendientes = PASOS.flatMap((p) => problemas[p.id]);
   const todoValido = problemasPendientes.length === 0;
+
+  // Si el saldo no se pudo leer (`null`) no se bloquea nada: se prefiere dejar
+  // pasar y que el PAC decida antes que impedir emitir por un fallo de lectura.
+  const sinTimbres = timbres !== null && timbres.disponibles <= 0;
+  const pocosTimbres =
+    timbres !== null &&
+    timbres.disponibles > 0 &&
+    timbres.disponibles <= TIMBRES_BAJOS;
 
   /**
    * Estado de cada paso en el indicador. Un paso solo se marca en rojo si el
@@ -369,6 +384,20 @@ export function NuevaFacturaWizard({ emisores }: { emisores: Emisor[] }) {
             />
           )}
 
+          {/* Sin saldo el timbrado falla en el PAC con un error críptico: más
+              vale decirlo antes de que llene todo el comprobante. */}
+          {pasoActual === "revision" && sinTimbres && (
+            <Note tone="danger" title="No te quedan timbres">
+              El timbrado consume un timbre de tu cuenta y tu saldo está en cero.
+              Recarga con tu distribuidor antes de emitir.
+            </Note>
+          )}
+          {pasoActual === "revision" && pocosTimbres && (
+            <Note tone="warn" title={`Te quedan ${timbres!.disponibles} timbres`}>
+              Esta factura consumirá uno. Conviene recargar pronto.
+            </Note>
+          )}
+
           {errorEnvio && (
             <Note tone="danger" title="El SAT rechazó el comprobante">
               {errorEnvio}
@@ -392,7 +421,7 @@ export function NuevaFacturaWizard({ emisores }: { emisores: Emisor[] }) {
                 <Button
                   variant="primary"
                   onClick={timbrar}
-                  disabled={enviando || !todoValido}
+                  disabled={enviando || !todoValido || sinTimbres}
                 >
                   {enviando ? "Timbrando…" : "Timbrar factura"}
                 </Button>

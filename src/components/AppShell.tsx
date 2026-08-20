@@ -7,7 +7,9 @@ import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/LogoutButton";
 import { ToastProvider, cx } from "@/components/ui";
 import { EMISOR_SECTIONS, emisorHref, iniciales } from "@/lib/emisorNav";
+import { TimbresBadge } from "@/components/TimbresBadge";
 import type { CurrentUser } from "@/lib/currentUser";
+import type { Timbres } from "@/lib/timbresShared";
 
 const NAV_ITEMS = [
   { href: "/", label: "Inicio" },
@@ -24,9 +26,12 @@ function rfcDelPathname(pathname: string): string | null {
 
 export function AppShell({
   user,
+  timbres,
   children,
 }: {
   user: CurrentUser;
+  /** Saldo de timbres de la cuenta; null si no se pudo consultar. */
+  timbres: Timbres | null;
   children: React.ReactNode;
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -74,7 +79,11 @@ export function AppShell({
             )}
           </nav>
 
-          <div className="ml-auto hidden items-center gap-2 md:flex">
+          <div className="ml-auto flex items-center gap-2">
+            {timbres && <TimbresBadge timbres={timbres} />}
+          </div>
+
+          <div className="hidden items-center gap-2 md:flex">
             <span className="flex items-center gap-2 rounded-full border border-line py-1 pl-1 pr-3">
               <span className="grid h-7 w-7 place-items-center rounded-full bg-ink text-[11px] font-bold text-background">
                 {iniciales(user.Nombre)}
@@ -144,6 +153,14 @@ export function AppShell({
 
               <div className="mt-6 border-t border-line pt-4">
                 <p className="mb-2 text-sm text-ink-2">{user.Nombre}</p>
+                {timbres && (
+                  <p className="mb-3 text-[12.5px] text-ink-3">
+                    <span className="font-mono font-semibold text-ink">
+                      {timbres.disponibles}
+                    </span>{" "}
+                    timbres disponibles
+                  </p>
+                )}
                 <LogoutButton />
               </div>
             </div>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { NuevaFacturaWizard } from "@/components/facturas/NuevaFacturaWizard";
 import { getEmisores } from "@/lib/emisores";
+import { getTimbres } from "@/lib/timbres";
 
 /**
  * Los emisores se cargan en el servidor: son lo primero que necesita el
@@ -8,7 +9,8 @@ import { getEmisores } from "@/lib/emisores";
  * folio sí dependen de la selección, así que esos los pide el cliente.
  */
 export default async function NuevaFacturaPage() {
-  const emisores = await getEmisores();
+  // getTimbres va memoizado con cache(): el layout ya lo pidió en este render.
+  const [emisores, timbres] = await Promise.all([getEmisores(), getTimbres()]);
 
   return (
     <div className="space-y-5">
@@ -26,7 +28,7 @@ export default async function NuevaFacturaPage() {
         </p>
       </div>
 
-      <NuevaFacturaWizard emisores={emisores} />
+      <NuevaFacturaWizard emisores={emisores} timbres={timbres} />
     </div>
   );
 }
