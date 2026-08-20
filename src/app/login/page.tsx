@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { inputClass } from "@/components/ui/styles";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -39,8 +40,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
-      <div className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-8 shadow-sm">
+    <div className="flex min-h-screen items-center justify-center bg-bg px-4">
+      <div className="w-full max-w-sm rounded-xl border border-line bg-surface p-8 shadow-card">
         <Image
           src="/factubox-logo.png"
           alt="Factubox"
@@ -49,7 +50,7 @@ export default function LoginPage() {
           className="mx-auto mb-6 h-auto w-48"
           priority
         />
-        <h1 className="mb-6 text-xl font-semibold text-neutral-900">
+        <h1 className="mb-6 text-xl font-semibold text-ink">
           Iniciar sesión
         </h1>
 
@@ -57,7 +58,7 @@ export default function LoginPage() {
           <div>
             <label
               htmlFor="usuario"
-              className="mb-1 block text-sm font-medium text-neutral-700"
+              className="mb-1 block text-sm font-medium text-ink-2"
             >
               Usuario o correo
             </label>
@@ -68,14 +69,14 @@ export default function LoginPage() {
               required
               value={usuario}
               onChange={(e) => setUsuario(e.target.value)}
-              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-500"
+              className={inputClass}
             />
           </div>
 
           <div>
             <label
               htmlFor="password"
-              className="mb-1 block text-sm font-medium text-neutral-700"
+              className="mb-1 block text-sm font-medium text-ink-2"
             >
               Contraseña
             </label>
@@ -86,12 +87,12 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-500"
+              className={inputClass}
             />
           </div>
 
           {error && (
-            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="rounded-md bg-danger-bg px-3 py-2 text-sm text-danger">
               {error}
             </p>
           )}
@@ -99,7 +100,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-neutral-700 disabled:opacity-50"
+            className="w-full rounded-lg bg-ink px-3 py-2 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-50"
           >
             {loading ? "Entrando..." : "Entrar"}
           </button>

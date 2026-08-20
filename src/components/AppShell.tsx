@@ -5,9 +5,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/LogoutButton";
+import { UserMenu, UserMenuMovil } from "@/components/UserMenu";
 import { ToastProvider, cx } from "@/components/ui";
-import { EMISOR_SECTIONS, emisorHref, iniciales } from "@/lib/emisorNav";
+import { EMISOR_SECTIONS, emisorHref } from "@/lib/emisorNav";
 import { TimbresBadge } from "@/components/TimbresBadge";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import type { CurrentUser } from "@/lib/currentUser";
 import type { Timbres } from "@/lib/timbresShared";
 
@@ -81,16 +83,16 @@ export function AppShell({
 
           <div className="ml-auto flex items-center gap-2">
             {timbres && <TimbresBadge timbres={timbres} />}
+            <ThemeToggle />
           </div>
 
-          <div className="hidden items-center gap-2 md:flex">
-            <span className="flex items-center gap-2 rounded-full border border-line py-1 pl-1 pr-3">
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-ink text-[11px] font-bold text-background">
-                {iniciales(user.Nombre)}
-              </span>
-              <span className="text-xs font-medium text-ink-2">{user.Nombre}</span>
-            </span>
-            <LogoutButton />
+          <div className="hidden items-center md:flex">
+            {/* El chip del usuario abre un panel con la identidad completa y el
+                IMEI, y desde ahi se entra a /cuenta o se cierra sesion. Antes
+                navegaba directo, y "cerrar sesion" ocupaba un boton propio en
+                la barra: agrupar las dos cosas deja el encabezado para lo que
+                de verdad se usa a diario. */}
+            <UserMenu user={user} />
           </div>
         </header>
 
@@ -103,14 +105,17 @@ export function AppShell({
             <div className="absolute left-0 top-0 h-full w-72 overflow-y-auto bg-surface p-4 shadow-pop">
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-sm font-semibold text-ink">Menú</span>
-                <button
-                  type="button"
-                  onClick={() => setMobileNavOpen(false)}
-                  className="focus-brand rounded-lg p-1.5 text-ink-2 hover:bg-line-2"
-                  aria-label="Cerrar menú"
-                >
-                  <CloseIcon />
-                </button>
+                <div className="flex items-center gap-1">
+                  <ThemeToggle />
+                  <button
+                    type="button"
+                    onClick={() => setMobileNavOpen(false)}
+                    className="focus-brand rounded-lg p-1.5 text-ink-2 hover:bg-line-2"
+                    aria-label="Cerrar menú"
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
               </div>
 
               <nav className="space-y-1">
@@ -152,7 +157,10 @@ export function AppShell({
               )}
 
               <div className="mt-6 border-t border-line pt-4">
-                <p className="mb-2 text-sm text-ink-2">{user.Nombre}</p>
+                <UserMenuMovil
+                  user={user}
+                  onNavegar={() => setMobileNavOpen(false)}
+                />
                 {timbres && (
                   <p className="mb-3 text-[12.5px] text-ink-3">
                     <span className="font-mono font-semibold text-ink">

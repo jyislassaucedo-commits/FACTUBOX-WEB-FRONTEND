@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { inputClass } from "@/components/ui/styles";
 import { REGIMENES_FISCALES, USOS_CFDI } from "@/lib/catalogosSat";
 import type { Receptor, ReceptorInput } from "@/lib/receptores";
-
-const inputClass =
-  "w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-500";
 
 const VACIO: ReceptorInput = {
   rfc: "",
@@ -72,13 +70,13 @@ export function ReceptorFormModal({
   return (
     <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="absolute left-1/2 top-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-lg">
+      <div className="absolute left-1/2 top-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-surface p-5 shadow-pop">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-neutral-900">Nuevo receptor</h2>
+          <h2 className="text-sm font-semibold text-ink">Nuevo receptor</h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-sm text-neutral-500 hover:text-neutral-700"
+            className="text-sm text-ink-3 hover:text-ink"
           >
             Cerrar
           </button>
@@ -87,7 +85,7 @@ export function ReceptorFormModal({
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-600">RFC</label>
+              <label className="mb-1 block text-xs font-medium text-ink-2">RFC</label>
               <input
                 className={inputClass}
                 value={values.rfc}
@@ -97,7 +95,7 @@ export function ReceptorFormModal({
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-600">
+              <label className="mb-1 block text-xs font-medium text-ink-2">
                 Código postal
               </label>
               <input
@@ -113,7 +111,7 @@ export function ReceptorFormModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-600">
+            <label className="mb-1 block text-xs font-medium text-ink-2">
               Nombre / Razón social
             </label>
             <input
@@ -126,7 +124,7 @@ export function ReceptorFormModal({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-600">
+              <label className="mb-1 block text-xs font-medium text-ink-2">
                 Régimen fiscal
               </label>
               <select
@@ -144,7 +142,7 @@ export function ReceptorFormModal({
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-600">
+              <label className="mb-1 block text-xs font-medium text-ink-2">
                 Uso de CFDI
               </label>
               <select
@@ -164,7 +162,7 @@ export function ReceptorFormModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-600">
+            <label className="mb-1 block text-xs font-medium text-ink-2">
               Correo electrónico (opcional)
             </label>
             <input
@@ -176,14 +174,14 @@ export function ReceptorFormModal({
           </div>
 
           {error && (
-            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+            <p className="rounded-md bg-danger-bg px-3 py-2 text-sm text-danger">{error}</p>
           )}
 
           <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
+              className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink-2 hover:bg-line-2"
             >
               Cancelar
             </button>

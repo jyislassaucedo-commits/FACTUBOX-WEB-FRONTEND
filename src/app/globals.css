@@ -10,6 +10,8 @@
 --------------------------------------------------------------------------- */
 
 :root {
+  color-scheme: light;
+
   --background: #ffffff;
   --foreground: #0f1621;
 
@@ -63,10 +65,15 @@
   --chart-baseline: #c3c2b7;
 }
 
-/* Tema oscuro OPT-IN via <html data-theme="dark">. No se sigue
-   prefers-color-scheme: varias pantallas (dashboard, facturas, login) todavia
-   tienen colores fijos y se romperian. Ver REFACTOR.md, fase "dark mode". */
+/* Tema oscuro: se activa poniendo data-theme="dark" en <html> (ver
+   ThemeToggle.tsx y el script anti-parpadeo en layout.tsx). No se sigue
+   prefers-color-scheme directo por CSS a propósito: ese script ya resuelve
+   la preferencia del sistema una sola vez al cargar y la deja fija como
+   atributo, para que alternar el tema a mano sea consistente sin importar
+   qué diga el SO después. */
 [data-theme="dark"] {
+  color-scheme: dark;
+
   --background: #0c1017;
   --foreground: #edf1f6;
 

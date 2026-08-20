@@ -1,14 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { cx, inputClass } from "@/components/ui/styles";
 import type { ConfigPdfForm } from "@/lib/configPdfShared";
 import { PdfPreview } from "./PdfPreview";
 
-const colorClass = "h-10 w-16 rounded border border-neutral-300";
-const numberClass =
-  "w-24 rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-500";
-const textClass =
-  "w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-500";
+const colorClass = "h-10 w-16 rounded border border-line";
+const numberClass = cx(inputClass, "w-24");
+const textClass = inputClass;
 
 const TOGGLES: { key: keyof ConfigPdfForm; label: string }[] = [
   { key: "mostrarDecimales", label: "Mostrar decimales" },
@@ -89,7 +88,7 @@ export function ConfigPdfEditor({
     <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <div className="space-y-6">
         <div>
-          <label className="mb-1 block text-sm font-medium text-neutral-700">
+          <label className="mb-1 block text-sm font-medium text-ink-2">
             Nombre de la configuración
           </label>
           <input
@@ -102,23 +101,23 @@ export function ConfigPdfEditor({
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-neutral-700">
+          <label className="mb-1 block text-sm font-medium text-ink-2">
             Logo de esta configuración
           </label>
           <input
             type="file"
             accept="image/png,image/jpeg"
             onChange={(e) => handleLogo(e.target.files?.[0] ?? null)}
-            className="block w-full text-sm text-neutral-600"
+            className="block w-full text-sm text-ink-2"
           />
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-medium text-neutral-600">Colores</p>
+          <p className="mb-2 text-xs font-medium text-ink-2">Colores</p>
           <div className="flex flex-wrap gap-4">
             {COLORES.map(({ key, label }) => (
               <div key={key}>
-                <label className="mb-1 block text-xs text-neutral-500">{label}</label>
+                <label className="mb-1 block text-xs text-ink-3">{label}</label>
                 <input
                   type="color"
                   className={colorClass}
@@ -132,7 +131,7 @@ export function ConfigPdfEditor({
 
         <div className="flex flex-wrap gap-6">
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-600">
+            <label className="mb-1 block text-xs font-medium text-ink-2">
               Tamaño de fuente
             </label>
             <input
@@ -148,7 +147,7 @@ export function ConfigPdfEditor({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-600">
+            <label className="mb-1 block text-xs font-medium text-ink-2">
               Grosor del separador
             </label>
             <input
@@ -166,10 +165,10 @@ export function ConfigPdfEditor({
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-medium text-neutral-600">Contenido</p>
+          <p className="mb-2 text-xs font-medium text-ink-2">Contenido</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {TOGGLES.map(({ key, label }) => (
-              <label key={key} className="flex items-center gap-2 text-sm text-neutral-700">
+              <label key={key} className="flex items-center gap-2 text-sm text-ink-2">
                 <input
                   type="checkbox"
                   checked={form[key] as boolean}
@@ -182,7 +181,7 @@ export function ConfigPdfEditor({
         </div>
 
         <div>
-          <label className="flex items-center gap-2 text-sm text-neutral-700">
+          <label className="flex items-center gap-2 text-sm text-ink-2">
             <input
               type="checkbox"
               checked={form.mostrarMarcaAgua}
@@ -201,7 +200,7 @@ export function ConfigPdfEditor({
         </div>
 
         {error && (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+          <p className="rounded-md bg-danger-bg px-3 py-2 text-sm text-danger">{error}</p>
         )}
 
         <div className="flex gap-2">
@@ -215,7 +214,7 @@ export function ConfigPdfEditor({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100"
+            className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink-2 transition hover:bg-line-2"
           >
             Cancelar
           </button>

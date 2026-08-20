@@ -16,11 +16,14 @@ export function PdfPreview({
   const separadorAlto = Math.max(form.grosorSeparador * 3, 1);
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-      <p className="mb-3 text-xs font-medium text-neutral-500">
+    <div className="rounded-xl border border-line bg-surface-2 p-4">
+      <p className="mb-3 text-xs font-medium text-ink-3">
         Vista previa aproximada
       </p>
 
+      {/* El "papel" de aquí para adentro se queda blanco a propósito en
+          cualquier tema: representa el PDF real, que siempre se imprime
+          sobre fondo blanco. */}
       <div
         className="relative mx-auto max-w-sm overflow-hidden rounded-md shadow-sm"
         style={{
