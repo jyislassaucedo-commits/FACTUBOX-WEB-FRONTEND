@@ -453,26 +453,15 @@ export function Modal({
 }) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
-  // onClose casi siempre es un closure inline (`() => setX(false)`), asi que
-  // cambia de identidad en cada render del padre - por ejemplo, en cada
-  // keystroke de un input dentro del modal. Se guarda en un ref para que el
-  // efecto de abajo pueda llamar siempre la version mas reciente sin tener
-  // que declarar onClose como dependencia (lo que reejecutaria el efecto, y
-  // con el ref.current?.focus() de abajo, robaria el foco del input activo
-  // en cada tecla).
-  const onCloseRef = useRef(onClose);
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  });
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onCloseRef.current();
+      if (e.key === "Escape") onClose();
     }
     document.addEventListener("keydown", onKey);
     ref.current?.focus();
     return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  }, [onClose]);
 
   return (
     <div
@@ -519,6 +508,126 @@ export function Modal({
 }
 
 /* -------------------------------------------------------------------------- */
+/* Drawer (panel lateral)                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Panel deslizante desde la derecha. Se usa para detalles largos que no
+ * justifican cambiar de pantalla (p. ej. el desglose de un CFDI).
+ */
+export function Drawer({
+  title,
+  subtitle,
+  onClose,
+  footer,
+  children,
+}: {
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  onClose: () => void;
+  footer?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const titleId = useId();
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    ref.current?.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-[2px]"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={ref}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="flex h-full w-full max-w-2xl flex-col border-l border-line bg-surface shadow-pop outline-none"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-line-2 px-5 py-4">
+          <div className="min-w-0">
+            <h3 id={titleId} className="truncate text-[15.5px] font-semibold text-ink">
+              {title}
+            </h3>
+            {subtitle && <div className="mt-0.5 text-[12.5px] text-ink-3">{subtitle}</div>}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cerrar"
+            className="focus-brand grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line text-ink-3 transition hover:bg-surface-2 hover:text-ink"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto bg-bg p-5">{children}</div>
+
+        {footer && (
+          <div className="flex flex-wrap justify-end gap-2 border-t border-line-2 bg-surface px-5 py-3.5">
+            {footer}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Copiar al portapapeles                                                     */
+/* -------------------------------------------------------------------------- */
+
+export function CopyButton({
+  value,
+  label,
+  className,
+}: {
+  value: string;
+  label?: string;
+  className?: string;
+}) {
+  const [copiado, setCopiado] = useState(false);
+
+  return (
+    <button
+      type="button"
+      title="Copiar"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopiado(true);
+          setTimeout(() => setCopiado(false), 1600);
+        } catch {
+          /* el portapapeles puede estar bloqueado */
+        }
+      }}
+      className={cx(
+        "focus-brand inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2 py-1 font-mono text-[11.5px] text-ink transition hover:border-brand hover:text-brand",
+        className
+      )}
+    >
+      <span className="truncate">{label ?? value}</span>
+      <span className="shrink-0 font-sans text-[10px] text-ink-3">
+        {copiado ? "copiado" : "⧉"}
+      </span>
+    </button>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Zona de archivo (input file con look de dropzone)                          */
 /* -------------------------------------------------------------------------- */
 
@@ -541,19 +650,6 @@ export function FileDrop({
   const [over, setOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const activo = Boolean(file) || done;
-
-  // Miniatura solo para archivos de imagen (el logo) - CSD .cer/.key no
-  // aplica. El object URL se crea en el render (no en un efecto, para no
-  // hacer setState ahi) y se libera con el efecto de limpieza de abajo.
-  const previewUrl = useMemo(() => {
-    if (!file || !file.type.startsWith("image/")) return null;
-    return URL.createObjectURL(file);
-  }, [file]);
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
 
   return (
     <div
@@ -579,24 +675,14 @@ export function FileDrop({
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="focus-brand flex w-full items-center gap-3 rounded-lg"
+        className="focus-brand w-full rounded-lg"
       >
-        {previewUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={previewUrl}
-            alt=""
-            className="h-10 w-16 shrink-0 rounded object-contain"
-          />
-        )}
-        <span className={cx("min-w-0 flex-1", previewUrl ? "text-left" : "text-center")}>
-          <p className={cx("truncate text-[13px] font-semibold", activo ? "text-ok" : "text-ink")}>
-            {file ? file.name : label}
-          </p>
-          <p className={cx("mt-0.5 text-[11.5px]", activo ? "text-ok" : "text-ink-3")}>
-            {file ? "Listo para subir" : done ? "Ya cargado · haz clic para reemplazar" : hint}
-          </p>
-        </span>
+        <p className={cx("text-[13px] font-semibold", activo ? "text-ok" : "text-ink")}>
+          {file ? file.name : label}
+        </p>
+        <p className={cx("mt-0.5 text-[11.5px]", activo ? "text-ok" : "text-ink-3")}>
+          {file ? "Listo para subir" : done ? "Ya cargado · haz clic para reemplazar" : hint}
+        </p>
       </button>
       <input
         ref={inputRef}
