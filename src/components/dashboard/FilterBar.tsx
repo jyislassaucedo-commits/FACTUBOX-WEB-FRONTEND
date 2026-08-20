@@ -1,11 +1,12 @@
 "use client";
 
 import type { Emisor } from "@/lib/emisores";
-import { TIPO_LABELS, TIPO_ORDEN } from "@/lib/reportesUtils";
+import { MESES, TIPO_LABELS, TIPO_ORDEN } from "@/lib/reportesUtils";
 
 export type Filtros = {
   rfc: string;
   anio: number;
+  mes: string; // "" = todo el año, o "1".."12"
   tipo: string;
 };
 
@@ -56,6 +57,24 @@ export function FilterBar({
           {anios.map((anio) => (
             <option key={anio} value={anio}>
               {anio}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-medium text-neutral-600">
+          Mes
+        </label>
+        <select
+          className={selectClass}
+          value={filtros.mes}
+          onChange={(e) => onChange({ ...filtros, mes: e.target.value })}
+        >
+          <option value="">Todos</option>
+          {MESES.map((mes, i) => (
+            <option key={mes} value={i + 1}>
+              {mes}
             </option>
           ))}
         </select>

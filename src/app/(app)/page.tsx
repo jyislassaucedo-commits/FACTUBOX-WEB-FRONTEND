@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Emisor } from "@/lib/emisores";
 import type { DashboardData } from "@/lib/reportes";
-import { porMes, porTipo, totalFacturas } from "@/lib/reportesUtils";
+import { MESES, porMes, porTipo, totalFacturas } from "@/lib/reportesUtils";
 import { FilterBar, type Filtros } from "@/components/dashboard/FilterBar";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { MonthlyBarChart } from "@/components/dashboard/MonthlyBarChart";
@@ -15,6 +15,7 @@ export default function DashboardPage() {
   const [filtros, setFiltrosState] = useState<Filtros>({
     rfc: "",
     anio: new Date().getFullYear(),
+    mes: "",
     tipo: "TODO",
   });
   const [data, setData] = useState<DashboardData | null>(null);
@@ -38,6 +39,7 @@ export default function DashboardPage() {
     const params = new URLSearchParams({
       rfc: filtros.rfc,
       anio: String(filtros.anio),
+      mes: filtros.mes,
       tipo: filtros.tipo,
     });
 
@@ -68,15 +70,24 @@ export default function DashboardPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <StatTile label={`Facturas en ${filtros.anio}`} value={String(total)} />
+            <StatTile
+              label={
+                filtros.mes
+                  ? `Facturas en ${MESES[parseInt(filtros.mes, 10) - 1]} ${filtros.anio}`
+                  : `Facturas en ${filtros.anio}`
+              }
+              value={String(total)}
+            />
             <StatTile
               label="Emisores con actividad"
               value={String(data?.emisores.length ?? 0)}
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <MonthlyBarChart data={mensual} />
+          <div
+            className={`grid grid-cols-1 gap-4 ${filtros.mes ? "" : "lg:grid-cols-2"}`}
+          >
+            {!filtros.mes && <MonthlyBarChart data={mensual} />}
             <TipoPieChart data={tipos} />
           </div>
 

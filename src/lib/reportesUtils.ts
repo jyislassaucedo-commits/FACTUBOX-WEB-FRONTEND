@@ -19,7 +19,7 @@ export const TIPO_COLOR: Record<string, string> = {
   T: "var(--series-5)",
 };
 
-const MESES = [
+export const MESES = [
   "Ene",
   "Feb",
   "Mar",
