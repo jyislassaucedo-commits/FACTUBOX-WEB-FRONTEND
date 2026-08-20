@@ -24,6 +24,7 @@ import {
   USOS_CFDI,
 } from "@/lib/catalogosSat";
 import type { Factura } from "@/lib/facturasShared";
+import { validarEstatusSat, type ResultadoEstatus } from "@/lib/estatusSat";
 
 function etiqueta(
   catalogo: ReadonlyArray<{ value: string; label: string }>,
@@ -44,15 +45,21 @@ export function FacturaDetalle({
   onClose,
   onCancelar,
   onPdf,
+  onEstatusActualizado,
 }: {
   factura: Factura;
   onClose: () => void;
   onCancelar: () => void;
   onPdf: () => void;
+  /** Avisa al listado para que refresque la fila sin recargar todo. */
+  onEstatusActualizado?: (uuid: string, estado: string) => void;
 }) {
   const [cfdi, setCfdi] = useState<Cfdi | null>(null);
   const [base64, setBase64] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Resultado de consultar el SAT para esta factura en particular. */
+  const [estatusSat, setEstatusSat] = useState<ResultadoEstatus | null>(null);
+  const [validando, setValidando] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -77,8 +84,23 @@ export function FacturaDetalle({
     };
   }, [factura.Uuid]);
 
-  const cancelada = factura.EstatusSat === "Cancelado";
+  // Si ya se consultó el SAT en este panel, ese estatus manda sobre el guardado.
+  const estatus = estatusSat?.ok ? (estatusSat.estado ?? factura.EstatusSat) : factura.EstatusSat;
+  const cancelada = estatus === "Cancelado";
   const tipo = tipoSerie(factura.TipoComprobante);
+
+  async function validar() {
+    setValidando(true);
+    try {
+      const [resultado] = await validarEstatusSat([factura], () => {});
+      setEstatusSat(resultado);
+      if (resultado?.ok) {
+        onEstatusActualizado?.(factura.Uuid, resultado.estado ?? "");
+      }
+    } finally {
+      setValidando(false);
+    }
+  }
 
   function descargarXml() {
     if (!base64) return;
@@ -97,8 +119,10 @@ export function FacturaDetalle({
         <span className="flex items-center gap-2">
           {factura.Serie ? `${factura.Serie}-${factura.Folio}` : `Folio ${factura.Folio}`}
           <Pill tone={tipo.tone}>{tipo.label}</Pill>
-          <Pill tone={cancelada ? "danger" : "ok"}>
-            ● {factura.EstatusSat || "Sin estatus"}
+          <Pill
+            tone={cancelada ? "danger" : estatus === "Vigente" ? "ok" : "warn"}
+          >
+            ● {estatus || "Sin estatus"}
           </Pill>
         </span>
       }
@@ -113,6 +137,9 @@ export function FacturaDetalle({
         <>
           <Button variant="ghost" onClick={onClose}>
             Cerrar
+          </Button>
+          <Button variant="secondary" onClick={validar} disabled={validando}>
+            {validando ? "Consultando SAT…" : "Validar en el SAT"}
           </Button>
           <Button variant="secondary" onClick={onPdf}>
             Generar PDF
@@ -134,8 +161,46 @@ export function FacturaDetalle({
         </Note>
       )}
 
-      {cancelada && (
+      {estatusSat && (
         <div className={error ? "mt-3" : undefined}>
+          {estatusSat.ok ? (
+            <Note
+              tone={
+                estatusSat.estado === "Vigente"
+                  ? "ok"
+                  : estatusSat.estado === "Cancelado"
+                    ? "danger"
+                    : "warn"
+              }
+              title={`El SAT responde: ${estatusSat.estado || "sin estado"}`}
+            >
+              <span className="mt-1 block">
+                {estatusSat.esCancelable && (
+                  <span className="block">Cancelable: {estatusSat.esCancelable}</span>
+                )}
+                {estatusSat.estatusCancelacion &&
+                  estatusSat.estatusCancelacion !== "NO VALIDO" && (
+                    <span className="block">
+                      Estatus de cancelación: {estatusSat.estatusCancelacion}
+                    </span>
+                  )}
+                {estatusSat.codigoEstatus && (
+                  <span className="block text-[11.5px] opacity-80">
+                    {estatusSat.codigoEstatus}
+                  </span>
+                )}
+              </span>
+            </Note>
+          ) : (
+            <Note tone="danger" title="No se pudo consultar el SAT">
+              {estatusSat.error}
+            </Note>
+          )}
+        </div>
+      )}
+
+      {cancelada && (
+        <div className={estatusSat || error ? "mt-3" : undefined}>
           <Note tone="danger" title="Factura cancelada ante el SAT">
             {factura.FechaCancelacion
               ? `Cancelada el ${fechaHora(factura.FechaCancelacion)}.`

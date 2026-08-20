@@ -124,33 +124,66 @@ export async function cancelarFactura(input: {
 
   const datosJSON64 = Buffer.from(JSON.stringify(datosJSON)).toString("base64");
 
-  const resp = await callLegacyPhpApi<CancelarResult>("/endpoint/apiCancelacionV2.php", {
+  return callLegacyPhpApi<CancelarResult>("/endpoint/apiCancelacionV2.php", {
     SessionToken: session.token,
     Token: emisor.Token,
     ModoTimbrado: MODO_TIMBRADO,
     DatosJSON: datosJSON64,
   });
+}
 
-  // apiCancelacionV2.php cancela de verdad ante el SAT (crea el registro en
-  // CANCELACION) pero NO toca FACTURA.estatussat, que es lo que lee el
-  // listado (getFacturasV2.php). Sin este segundo paso la fila se queda con
-  // el estatus viejo para siempre - aqui SI es correcto usar
-  // setEstatusFacturaV2.php (a diferencia de usarlo en lugar de la
-  // cancelación real): la cancelación ya sucedió, esto solo sincroniza el
-  // cache local. Se manda "Cancelado" fijo (no resp.EstatusUUID): Finkok
-  // regresa ahi un texto descriptivo la primera vez pero un codigo numerico
-  // (ej. "201") si el UUID ya estaba cancelado - guardar eso tal cual
-  // ensuciaria el estatus mostrado en la tabla. Si este paso falla, no se
-  // revierte el resultado - la cancelación real ya es irreversible.
-  if (resp.Error === "0") {
-    await callLegacyPhpApi("/maa/mvc/Factura/api/setEstatusFacturaV2.php", {
-      Token: session.token,
-      UUID: input.uuid,
-      Estatus: "Cancelado",
-    }).catch(() => undefined);
-  }
+export type EstatusSatResult = {
+  /** "Vigente" | "Cancelado" | "No Encontrado" */
+  Estado: string;
+  /** "Cancelable sin aceptación" | "Cancelable con aceptación" | "No cancelable" */
+  EsCancelable: string;
+  EstatusCancelacion: string;
+  CodigoEstatus: string;
+  ValidacionEfos?: string;
+  DetallesValidacionEfos?: string;
+  Fecha?: string;
+};
 
-  return resp;
+/**
+ * Consulta el estatus real de un CFDI ante el SAT (`/endpoint/apiEstatusV2.php`).
+ *
+ * Ojo con dos cosas:
+ *
+ * 1. **El endpoint ya persiste el resultado**: internamente llama a
+ *    `editEstatusTimbrado()`, que escribe `Estado` en la columna `estatussat`
+ *    de la factura. Por eso NO hay que llamar además a `setEstatusFacturaV2`.
+ * 2. **Usa el CSD del emisor** para firmar la consulta, así que un emisor sin
+ *    certificado cargado no puede validar nada.
+ *
+ * Es una llamada SOAP al SAT: tarda. Quien la use en lote debe ir por tandas.
+ */
+export async function consultarEstatusSat(input: {
+  emisorToken: string;
+  rfcEmisor: string;
+  rfcReceptor: string;
+  uuid: string;
+  total: string;
+}): Promise<PhpResponse<EstatusSatResult>> {
+  const session = await getSession();
+  if (!session) return { Error: "1", DescripError: "No autenticado" };
+
+  const datosJSON = {
+    RFC_Emisor: input.rfcEmisor,
+    RFC_Receptor: input.rfcReceptor,
+    UUID: input.uuid,
+    // El SAT compara el total contra el del comprobante: debe ir con dos
+    // decimales o la consulta responde "No Encontrado" aunque exista.
+    TotalCfdi: (parseFloat(input.total) || 0).toFixed(2),
+  };
+
+  const datosJSON64 = Buffer.from(JSON.stringify(datosJSON)).toString("base64");
+
+  return callLegacyPhpApi<EstatusSatResult>("/endpoint/apiEstatusV2.php", {
+    SessionToken: session.token,
+    Token: input.emisorToken,
+    ModoTimbrado: MODO_TIMBRADO,
+    DatosJSON: datosJSON64,
+  });
 }
 
 /* ---------------------------------------------------------------------------

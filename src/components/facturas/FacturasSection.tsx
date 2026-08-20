@@ -10,6 +10,7 @@ import {
   CopyButton,
   EmptyState,
   Pill,
+  ProgressBar,
   RowActions,
   SearchInput,
   Segmented,
@@ -23,6 +24,11 @@ import {
   useToast,
 } from "@/components/ui";
 import { base64AXml, fechaHora, money } from "@/lib/cfdi";
+import {
+  resumirValidacion,
+  validarEstatusSat,
+  type Avance,
+} from "@/lib/estatusSat";
 import { tipoSerie } from "@/lib/emisorNav";
 import { TIPO_LABELS, TIPO_ORDEN } from "@/lib/reportesUtils";
 import type { Factura, FacturasFiltros } from "@/lib/facturasShared";
@@ -79,6 +85,18 @@ export function FacturasSection({
   const [detalle, setDetalle] = useState<Factura | null>(null);
   const [cancelando, setCancelando] = useState<Factura | null>(null);
   const [bajando, setBajando] = useState<string | null>(null);
+
+  /** UUIDs marcados con la casilla de la tabla. */
+  const [seleccion, setSeleccion] = useState<string[]>([]);
+  /** Avance de la validación en curso; null = no hay ninguna corriendo. */
+  const [validando, setValidando] = useState<Avance | null>(null);
+  /**
+   * Estatus recién consultados al SAT. Se pintan encima de lo que trae el
+   * servidor para que la tabla reaccione mientras la corrida avanza; al
+   * terminar, router.refresh() vuelve a traer los datos ya persistidos y este
+   * mapa deja de importar.
+   */
+  const [estatusFresco, setEstatusFresco] = useState<Record<string, string>>({});
 
   /** Los filtros que pegan al backend viajan en la URL: cambiarlos re-consulta. */
   function aplicar(cambios: Partial<FacturasFiltros>) {
@@ -172,6 +190,59 @@ export function FacturasSection({
     a.download = `${factura.Uuid}.pdf`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  /** El estatus recién consultado gana sobre el que venía del servidor. */
+  function estatusDe(f: Factura) {
+    return estatusFresco[f.Uuid] ?? f.EstatusSat;
+  }
+
+  const seleccionadas = filtradas.filter((f) => seleccion.includes(f.Uuid));
+  const todasMarcadas = filtradas.length > 0 && seleccionadas.length === filtradas.length;
+
+  function alternar(uuid: string) {
+    setSeleccion((prev) =>
+      prev.includes(uuid) ? prev.filter((u) => u !== uuid) : [...prev, uuid]
+    );
+  }
+
+  function alternarTodas() {
+    setSeleccion(todasMarcadas ? [] : filtradas.map((f) => f.Uuid));
+  }
+
+  /**
+   * Consulta el estatus real ante el SAT. Sin selección valida todo lo que está
+   * en pantalla; con selección, solo lo marcado.
+   */
+  async function validarEstatus(objetivo: Factura[]) {
+    if (objetivo.length === 0 || validando) return;
+
+    setValidando({ hechas: 0, total: objetivo.length });
+    try {
+      const resultados = await validarEstatusSat(objetivo, (avance) => {
+        setValidando(avance);
+      });
+
+      setEstatusFresco((prev) => {
+        const siguiente = { ...prev };
+        for (const r of resultados) {
+          if (r.ok && r.estado) siguiente[r.uuid] = r.estado;
+        }
+        return siguiente;
+      });
+
+      const fallidas = resultados.filter((r) => !r.ok);
+      toast(
+        `SAT: ${resumirValidacion(resultados)}`,
+        fallidas.length === resultados.length ? "danger" : "ok"
+      );
+      setSeleccion([]);
+      // apiEstatusV2 ya guardó el estatus en la base: se recarga para quedar
+      // en sincronía con lo persistido.
+      router.refresh();
+    } finally {
+      setValidando(null);
+    }
   }
 
   const sinResultados = filtradas.length === 0;
@@ -289,7 +360,36 @@ export function FacturasSection({
               <option value="total-asc">Menor importe</option>
             </Select>
           </div>
+
+          <Button
+            variant={seleccionadas.length > 0 ? "primary" : "secondary"}
+            disabled={Boolean(validando) || filtradas.length === 0}
+            onClick={() =>
+              validarEstatus(seleccionadas.length > 0 ? seleccionadas : filtradas)
+            }
+            title="Consulta al SAT el estatus real de cada CFDI y actualiza el guardado"
+          >
+            {validando
+              ? `Validando ${validando.hechas}/${validando.total}…`
+              : seleccionadas.length > 0
+                ? `Validar ${seleccionadas.length} en el SAT`
+                : `Validar las ${filtradas.length} en el SAT`}
+          </Button>
         </Toolbar>
+
+        {validando && (
+          <div className="border-b border-line-2 px-5 py-2.5">
+            <div className="mb-1.5 flex items-center justify-between text-[12px]">
+              <span className="font-medium text-ink-2">
+                Consultando el SAT factura por factura…
+              </span>
+              <span className="font-mono text-ink-3">
+                {validando.hechas} de {validando.total}
+              </span>
+            </div>
+            <ProgressBar value={(validando.hechas / validando.total) * 100} />
+          </div>
+        )}
 
         <div className={cx("transition", pendiente && "pointer-events-none opacity-50")}>
           {sinResultados ? (
@@ -316,6 +416,15 @@ export function FacturasSection({
             <Table>
               <thead>
                 <tr>
+                  <Th className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Seleccionar todas las facturas visibles"
+                      checked={todasMarcadas}
+                      onChange={alternarTodas}
+                      className="focus-brand h-3.5 w-3.5 cursor-pointer accent-[var(--brand)]"
+                    />
+                  </Th>
                   <Th>Folio</Th>
                   <Th>Receptor</Th>
                   <Th>Tipo</Th>
@@ -328,13 +437,27 @@ export function FacturasSection({
               <tbody>
                 {filtradas.map((f) => {
                   const tipo = tipoSerie(f.TipoComprobante);
-                  const cancelada = f.EstatusSat === "Cancelado";
+                  const estatus = estatusDe(f);
+                  const cancelada = estatus === "Cancelado";
+                  const marcada = seleccion.includes(f.Uuid);
                   return (
                     <tr
                       key={f.Uuid}
                       onClick={() => setDetalle(f)}
-                      className="group cursor-pointer transition hover:bg-surface-2"
+                      className={cx(
+                        "group cursor-pointer transition",
+                        marcada ? "bg-brand-050" : "hover:bg-surface-2"
+                      )}
                     >
+                      <Td onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Seleccionar ${f.Serie}-${f.Folio}`}
+                          checked={marcada}
+                          onChange={() => alternar(f.Uuid)}
+                          className="focus-brand h-3.5 w-3.5 cursor-pointer accent-[var(--brand)]"
+                        />
+                      </Td>
                       <Td>
                         <span className="block font-mono text-[13.3px] font-semibold text-ink">
                           {f.Serie ? `${f.Serie}-${f.Folio}` : f.Folio}
@@ -366,8 +489,21 @@ export function FacturasSection({
                         {money(f.Total, f.Moneda)}
                       </Td>
                       <Td>
-                        <Pill tone={cancelada ? "danger" : "ok"}>
-                          ● {f.EstatusSat || "—"}
+                        <Pill
+                          tone={
+                            cancelada
+                              ? "danger"
+                              : estatus === "Vigente"
+                                ? "ok"
+                                : "warn"
+                          }
+                          title={
+                            estatusFresco[f.Uuid]
+                              ? "Recién consultado al SAT"
+                              : "Último estatus guardado"
+                          }
+                        >
+                          ● {estatus || "—"}
                         </Pill>
                       </Td>
                       <Td onClick={(e) => e.stopPropagation()}>
@@ -407,9 +543,15 @@ export function FacturasSection({
           <span>
             Mostrando {filtradas.length} de {facturas.length} facturas del rango.
           </span>
-          <span>
-            El rango de fechas es lo que acota la consulta: el backend no pagina.
-          </span>
+          {seleccionadas.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSeleccion([])}
+              className="focus-brand rounded font-medium text-brand hover:underline"
+            >
+              Quitar selección ({seleccionadas.length})
+            </button>
+          )}
         </CardBody>
       </Card>
 
@@ -418,6 +560,10 @@ export function FacturasSection({
           factura={detalle}
           onClose={() => setDetalle(null)}
           onPdf={() => generarPdf(detalle)}
+          onEstatusActualizado={(uuid, estado) => {
+            setEstatusFresco((prev) => ({ ...prev, [uuid]: estado }));
+            router.refresh();
+          }}
           onCancelar={() => {
             setCancelando(detalle);
             setDetalle(null);

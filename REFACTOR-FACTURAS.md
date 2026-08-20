@@ -150,11 +150,92 @@ ruta ni la UI cambian.
   Lo correcto sería agregar `LIMIT`/`OFFSET` y un `ORDER BY F.fechareg DESC` a
   `searchFacturas()` — hoy no tiene ninguno de los dos y el orden lo pone el
   frontend.
-- **Consultar estatus en el SAT**: `/endpoint/apiEstatusV2.php` existe y
-  permitiría un botón "revalidar estatus" por factura. No se cableó.
+- ~~**Consultar estatus en el SAT**~~ — hecho, ver la actualización al final de
+  este documento.
 - **Cancelación masiva**: `apiCancelacionV2.php` acepta un arreglo `UUIDS`; hoy
   se le manda uno solo. Con selección múltiple en la tabla saldría casi gratis.
 - **Descargar el acuse de cancelación**: la respuesta del endpoint lo trae; hoy
   se ignora.
 - **Facturas con error**: existe `getFacturasError.php` (intentos de timbrado
   fallidos) y no hay pantalla para eso.
+
+---
+
+# Actualización · Validación de estatus ante el SAT
+
+Fecha: 2026-08-20. Este bloque describe un segundo cambio sobre la misma
+pantalla, también **ya aplicado** en el árbol.
+
+## Qué cambia
+
+1. **Se quitó la leyenda** del pie de la tabla ("El rango de fechas es lo que
+   acota la consulta…"). El pie ahora solo muestra el conteo y, cuando hay
+   selección, un enlace para quitarla.
+2. **Validación del estatus real ante el SAT**, en tres alcances:
+   - **Todo lo que está en pantalla**: botón "Validar las N en el SAT".
+   - **Una selección**: columna de casillas en la tabla (con "seleccionar todo"
+     en el encabezado). Con algo marcado, el botón cambia a "Validar N en el SAT".
+   - **Una sola factura**: botón "Validar en el SAT" en el panel de detalle, que
+     además muestra `EsCancelable`, `EstatusCancelacion` y `CodigoEstatus`.
+
+## Por qué hacía falta
+
+`estatussat` se escribe **una sola vez**, al timbrar, con lo que el SAT
+respondiera en ese instante. Si la propagación del SAT venía retrasada, la
+factura se queda marcada como `No Encontrado` para siempre aunque hoy esté
+vigente. Ahora se puede resincronizar.
+
+## Archivos
+
+### Nuevos
+```
+src/lib/estatusSat.ts                       consulta por tandas + resumen (cliente)
+src/app/api/facturas/estatus/route.ts       lote de consultas al SAT
+```
+
+### Modificados
+```
+src/lib/facturas.ts                         + consultarEstatusSat()
+src/components/facturas/FacturasSection.tsx selección, botón, barra de avance, sin leyenda
+src/components/facturas/FacturaDetalle.tsx  + botón individual y panel de respuesta
+```
+
+## Notas del backend
+
+**`apiEstatusV2.php` ya persiste el resultado.** Internamente llama a
+`editEstatusTimbrado()`, que escribe `Estado` en la columna `estatussat`. Por eso
+**no** se usa `setEstatusFacturaV2.php` — sería escribir dos veces lo mismo. Tras
+cada corrida se llama `router.refresh()` para quedar en sincronía con lo guardado.
+
+**Firma la consulta con el CSD del emisor**, así que un emisor sin certificado no
+puede validar nada; el resultado sale como error en esa fila.
+
+**El `TotalCfdi` va con dos decimales.** El SAT compara el total contra el del
+comprobante: mandarlo sin formato hace que responda "No Encontrado" aunque la
+factura exista.
+
+## Sobre el ritmo de las consultas
+
+Cada validación es una llamada SOAP al SAT de aproximadamente un segundo, y se
+procesan **en serie** dentro de la ruta. Por eso:
+
+- La ruta acepta un máximo de **8 facturas por llamada** (`MAX_POR_TANDA`).
+- El cliente (`src/lib/estatusSat.ts`) parte la lista en tandas de ese tamaño y
+  va reportando el avance con una barra de progreso.
+- Si cambias el tope, cámbialo en **los dos lados**: la constante `TANDA` del
+  cliente debe coincidir con `MAX_POR_TANDA` de la ruta.
+
+Validar 200 facturas tomará unos minutos. Es una limitación del SAT, no del
+código; si llega a estorbar, lo correcto sería moverlo a un job en segundo plano.
+
+## Qué debes verificar
+
+1. `npm run build` y `npx eslint src` — pasaron aquí.
+2. Con facturas reales, valida **una sola** desde el detalle y confirma que el
+   `Estado` que devuelve el SAT coincide con lo que ves en el portal del SAT.
+3. Valida **una selección** y confirma que el estatus queda guardado: recarga la
+   página y debe seguir con el valor nuevo (lo persiste el PHP, no el frontend).
+4. Prueba con un emisor **sin CSD**: la fila debe reportar el error, no romper
+   la corrida completa.
+5. Mide cuánto tarda una tanda contra tu PAC/SAT real. Si una tanda de 8 se
+   acerca al timeout de tu servidor, baja `MAX_POR_TANDA` y `TANDA` a 4.
