@@ -1,101 +1,73 @@
-"use client";
+import { Card, CardBody } from "@/components/ui";
+import { buttonClass } from "@/components/ui/styles";
+import Link from "next/link";
+import { DashboardView } from "@/components/dashboard/DashboardView";
+import { getDashboardData, type DashboardFilters } from "@/lib/reportes";
+import { getEmisores } from "@/lib/emisores";
 
-import { useEffect, useState } from "react";
-import type { Emisor } from "@/lib/emisores";
-import type { DashboardData } from "@/lib/reportes";
-import { MESES, porMes, porTipo, totalFacturas } from "@/lib/reportesUtils";
-import { FilterBar, type Filtros } from "@/components/dashboard/FilterBar";
-import { StatTile } from "@/components/dashboard/StatTile";
-import { MonthlyBarChart } from "@/components/dashboard/MonthlyBarChart";
-import { TipoPieChart } from "@/components/dashboard/TipoPieChart";
-import { EmisorBarChart } from "@/components/dashboard/EmisorBarChart";
+/**
+ * Los filtros del tablero viven en la URL (`/?rfc=&anio=&mes=&tipo=`), no en
+ * estado de React: así la vista es compartible, el botón Atrás funciona y los
+ * filtros cruzados (clic en un mes o en un tipo de comprobante) son una simple
+ * navegación en lugar de estado duplicado.
+ */
+function leerFiltros(
+  sp: Record<string, string | string[] | undefined>
+): DashboardFilters {
+  const uno = (k: string) => {
+    const v = sp[k];
+    return Array.isArray(v) ? v[0] : v;
+  };
 
-export default function DashboardPage() {
-  const [emisores, setEmisores] = useState<Emisor[]>([]);
-  const [filtros, setFiltrosState] = useState<Filtros>({
-    rfc: "",
-    anio: new Date().getFullYear(),
-    mes: "",
-    tipo: "TODO",
-  });
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const anio = parseInt(uno("anio") ?? "", 10);
+  const mes = uno("mes") ?? "";
 
-  // El loading se activa aqui (evento del filtro), no dentro del efecto -
-  // llamar setState de forma sincrona al inicio de un efecto dispara
-  // renders en cascada innecesarios.
-  function handleFiltrosChange(next: Filtros) {
-    setLoading(true);
-    setFiltrosState(next);
+  return {
+    rfc: uno("rfc") ?? "",
+    anio: Number.isFinite(anio) ? anio : new Date().getFullYear(),
+    mes: /^([1-9]|1[0-2])$/.test(mes) ? mes : "",
+    tipo: uno("tipo") ?? "TODO",
+  };
+}
+
+export default async function InicioPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const filtros = leerFiltros(await searchParams);
+
+  const [data, emisores] = await Promise.all([
+    getDashboardData(filtros),
+    getEmisores(),
+  ]);
+
+  if (!data) {
+    return (
+      <Card className="mx-auto max-w-lg">
+        <CardBody className="text-center">
+          <p className="text-sm font-semibold text-ink">No se pudo cargar el resumen</p>
+          <p className="mt-1 text-[13px] text-ink-3">Vuelve a iniciar sesión.</p>
+        </CardBody>
+      </Card>
+    );
   }
 
-  useEffect(() => {
-    fetch("/api/emisores")
-      .then((res) => res.json())
-      .then((body) => setEmisores(body.emisores ?? []));
-  }, []);
-
-  useEffect(() => {
-    const params = new URLSearchParams({
-      rfc: filtros.rfc,
-      anio: String(filtros.anio),
-      mes: filtros.mes,
-      tipo: filtros.tipo,
-    });
-
-    fetch(`/api/dashboard?${params.toString()}`)
-      .then((res) => res.json())
-      .then((body: DashboardData) => setData(body))
-      .finally(() => setLoading(false));
-  }, [filtros]);
-
-  const facturasEjercicio = data?.facturasEjercicio ?? [];
-  const total = totalFacturas(facturasEjercicio);
-  const mensual = porMes(facturasEjercicio);
-  const tipos = porTipo(facturasEjercicio);
-
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-neutral-900">Inicio</h1>
-        <p className="mt-1 text-sm text-neutral-600">
-          Resumen de facturas emitidas.
-        </p>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-ink">Inicio</h1>
+          <p className="mt-1 text-[13px] text-ink-3">
+            Cuánto facturaste, cómo va tu operación y qué conviene revisar.
+          </p>
+        </div>
+        <Link href="/facturas/nueva" className={buttonClass("primary")}>
+          Nueva factura
+        </Link>
       </div>
 
-      <FilterBar emisores={emisores} filtros={filtros} onChange={handleFiltrosChange} />
-
-      {loading ? (
-        <p className="text-sm text-neutral-500">Cargando...</p>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <StatTile
-              label={
-                filtros.mes
-                  ? `Facturas en ${MESES[parseInt(filtros.mes, 10) - 1]} ${filtros.anio}`
-                  : `Facturas en ${filtros.anio}`
-              }
-              value={String(total)}
-            />
-            <StatTile
-              label="Emisores con actividad"
-              value={String(data?.emisores.length ?? 0)}
-            />
-          </div>
-
-          <div
-            className={`grid grid-cols-1 gap-4 ${filtros.mes ? "" : "lg:grid-cols-2"}`}
-          >
-            {!filtros.mes && <MonthlyBarChart data={mensual} />}
-            <TipoPieChart data={tipos} />
-          </div>
-
-          {filtros.rfc === "" && (
-            <EmisorBarChart data={data?.emisores ?? []} />
-          )}
-        </>
-      )}
+      <DashboardView data={data} emisores={emisores} filtros={filtros} />
     </div>
   );
 }

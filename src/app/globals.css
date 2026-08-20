@@ -159,6 +159,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Recharts pone tabindex en su envoltorio para navegación por teclado, pero el
+   navegador dibuja ese anillo también al hacer clic con el mouse: sobre una
+   gráfica clicable sale un recuadro negro alrededor del área de dibujo. Se
+   quita solo para el puntero; con teclado el anillo se conserva. */
+.recharts-wrapper:focus:not(:focus-visible),
+.recharts-wrapper :focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* Anillo de foco consistente en toda la app */
 @utility focus-brand {
   outline: none;
