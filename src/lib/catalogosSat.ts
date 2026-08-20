@@ -20,3 +20,50 @@ export const REGIMENES_FISCALES = [
   { value: "625", label: "625 - Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas" },
   { value: "626", label: "626 - Régimen Simplificado de Confianza" },
 ] as const;
+
+// c_FormaPago - las mas comunes en ventas de mostrador.
+export const FORMAS_PAGO = [
+  { value: "01", label: "01 - Efectivo" },
+  { value: "02", label: "02 - Cheque nominativo" },
+  { value: "03", label: "03 - Transferencia electrónica" },
+  { value: "04", label: "04 - Tarjeta de crédito" },
+  { value: "28", label: "28 - Tarjeta de débito" },
+  { value: "99", label: "99 - Por definir" },
+] as const;
+
+// c_MetodoPago
+export const METODOS_PAGO = [
+  { value: "PUE", label: "PUE - Pago en una sola exhibición" },
+  { value: "PPD", label: "PPD - Pago en parcialidades o diferido" },
+] as const;
+
+// c_ClaveUnidad - unidades mas comunes; el campo tambien acepta texto libre.
+export const CLAVES_UNIDAD = [
+  { value: "H87", label: "H87 - Pieza" },
+  { value: "E48", label: "E48 - Unidad de servicio" },
+  { value: "ACT", label: "ACT - Actividad" },
+  { value: "KGM", label: "KGM - Kilogramo" },
+  { value: "LTR", label: "LTR - Litro" },
+  { value: "MTR", label: "MTR - Metro" },
+  { value: "HUR", label: "HUR - Hora" },
+] as const;
+
+// Receptor fijo para facturas de Publico en General (CFDI 4.0).
+export const RECEPTOR_PUBLICO_GENERAL = {
+  Rfc: "XAXX010101000",
+  Nombre: "PUBLICO EN GENERAL",
+  RegimenFiscalReceptor: "616",
+  UsoCFDI: "S01",
+};
+
+// c_Impuesto
+export const IMPUESTO_IVA = "002";
+export const IMPUESTO_IEPS = "003";
+export const IMPUESTO_ISR = "001";
+
+export const TASAS_IVA = [
+  { value: "0.160000", label: "16%" },
+  { value: "0.080000", label: "8% (frontera)" },
+  { value: "0.000000", label: "0%" },
+  { value: "", label: "Exento" },
+] as const;

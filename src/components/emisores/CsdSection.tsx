@@ -63,9 +63,14 @@ export function CsdSection({
         return;
       }
 
-      if (validado.Rfc && validado.Rfc.toUpperCase() !== rfc.toUpperCase()) {
+      // validarCSDV2.php no recorta el RFC que extrae del certificado (a
+      // diferencia de uploadCertificadoEmpresaV2.php, que si usa trim()) -
+      // certificados CSD viejos a veces traen espacios de mas en ese campo,
+      // asi que se recorta aqui para no dar un falso "no coincide".
+      const rfcCertificado = (validado.Rfc ?? "").trim();
+      if (rfcCertificado && rfcCertificado.toUpperCase() !== rfc.trim().toUpperCase()) {
         setError(
-          `Este certificado pertenece a ${validado.Rfc}, no a ${rfc}. Sube el certificado correcto para este emisor.`
+          `Este certificado pertenece a ${rfcCertificado}, no a ${rfc}. Sube el certificado correcto para este emisor.`
         );
         return;
       }

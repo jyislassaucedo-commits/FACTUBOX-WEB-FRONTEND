@@ -1,0 +1,261 @@
+import { callLegacyPhpApi, type PhpResponse } from "./phpApi";
+import { getSession } from "./session";
+import { IMPUESTO_IEPS, IMPUESTO_ISR, IMPUESTO_IVA, RECEPTOR_PUBLICO_GENERAL } from "./catalogosSat";
+
+const MODO_TIMBRADO = process.env.MODO_TIMBRADO || "PRUEBAS";
+
+export type ConceptoInput = {
+  descripcion: string;
+  claveProdServ: string;
+  claveUnidad: string;
+  unidad: string;
+  cantidad: number;
+  valorUnitario: number;
+  ivaTasa: string; // "0.160000" | "0.080000" | "0.000000" | "" (exento)
+  iepsTasa: string; // "" = sin IEPS
+  retencionIsrTasa: string; // "" = sin retencion
+};
+
+export type NuevaFacturaInput = {
+  rfcEmisor: string;
+  nombreEmisor: string;
+  regimenEmisor: string;
+  lugarExpedicion: string;
+  serie: string;
+  folio: string;
+  formaPago: string;
+  metodoPago: string;
+  conceptos: ConceptoInput[];
+};
+
+function round2(n: number) {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+// El atributo Fecha del CFDI debe ir en hora LOCAL de Mexico (no UTC) - el
+// PAC valida que este dentro de un rango cercano a "ahora" y rechaza con
+// "Fecha y hora de generacion fuera de rango" si se manda en UTC (~6-7
+// horas adelantado respecto a Mexico).
+function fechaLocalMexico(fecha: Date): string {
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Mexico_City",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(fecha);
+  const obtener = (tipo: string) => partes.find((p) => p.type === tipo)?.value ?? "00";
+  return `${obtener("year")}-${obtener("month")}-${obtener("day")}T${obtener("hour")}:${obtener("minute")}:${obtener("second")}`;
+}
+
+// Arma el JSON CFDI 4.0 que espera JSON_CFDI40 (mismo formato usado por el
+// timbrado existente), calculando totales e impuestos globales a partir de
+// los conceptos capturados.
+function buildDatosJSON(input: NuevaFacturaInput) {
+  const ahora = new Date();
+  const fechaISO = fechaLocalMexico(ahora);
+
+  let subTotal = 0;
+  const trasladosPorTasa = new Map<string, { impuesto: string; tasa: string; base: number; importe: number }>();
+  const retencionesPorTasa = new Map<string, { impuesto: string; tasa: string; base: number; importe: number }>();
+
+  const conceptosJSON = input.conceptos.map((c) => {
+    const importe = round2(c.cantidad * c.valorUnitario);
+    subTotal += importe;
+
+    const traslados: Record<string, unknown>[] = [];
+    const retenciones: Record<string, unknown>[] = [];
+
+    if (c.ivaTasa !== "") {
+      const importeIva = round2(importe * parseFloat(c.ivaTasa));
+      traslados.push({
+        Base: importe.toFixed(2),
+        Impuesto: IMPUESTO_IVA,
+        TipoFactor: "Tasa",
+        TasaOCuota: c.ivaTasa,
+        Importe: importeIva.toFixed(2),
+      });
+      const key = `${IMPUESTO_IVA}-${c.ivaTasa}`;
+      const acc = trasladosPorTasa.get(key) ?? { impuesto: IMPUESTO_IVA, tasa: c.ivaTasa, base: 0, importe: 0 };
+      acc.base += importe;
+      acc.importe += importeIva;
+      trasladosPorTasa.set(key, acc);
+    }
+
+    if (c.iepsTasa !== "") {
+      const importeIeps = round2(importe * parseFloat(c.iepsTasa));
+      traslados.push({
+        Base: importe.toFixed(2),
+        Impuesto: IMPUESTO_IEPS,
+        TipoFactor: "Tasa",
+        TasaOCuota: c.iepsTasa,
+        Importe: importeIeps.toFixed(2),
+      });
+      const key = `${IMPUESTO_IEPS}-${c.iepsTasa}`;
+      const acc = trasladosPorTasa.get(key) ?? { impuesto: IMPUESTO_IEPS, tasa: c.iepsTasa, base: 0, importe: 0 };
+      acc.base += importe;
+      acc.importe += importeIeps;
+      trasladosPorTasa.set(key, acc);
+    }
+
+    if (c.retencionIsrTasa !== "") {
+      const importeRet = round2(importe * parseFloat(c.retencionIsrTasa));
+      retenciones.push({
+        Base: importe.toFixed(2),
+        Impuesto: IMPUESTO_ISR,
+        TipoFactor: "Tasa",
+        TasaOCuota: c.retencionIsrTasa,
+        Importe: importeRet.toFixed(2),
+      });
+      const key = `${IMPUESTO_ISR}-${c.retencionIsrTasa}`;
+      const acc = retencionesPorTasa.get(key) ?? { impuesto: IMPUESTO_ISR, tasa: c.retencionIsrTasa, base: 0, importe: 0 };
+      acc.base += importe;
+      acc.importe += importeRet;
+      retencionesPorTasa.set(key, acc);
+    }
+
+    const objetoImp = traslados.length > 0 || retenciones.length > 0 ? "02" : "01";
+
+    return {
+      // NoIdentificacion es opcional en el schema del SAT, pero si se manda
+      // debe tener contenido (minLength 1) - un string vacio lo rechaza el
+      // PAC con "XML mal formado" (facet minLength underrun). Se omite.
+      ClaveProdServ: c.claveProdServ,
+      Cantidad: String(c.cantidad),
+      ClaveUnidad: c.claveUnidad,
+      Unidad: c.unidad,
+      Descripcion: c.descripcion,
+      ValorUnitario: c.valorUnitario.toFixed(2),
+      Importe: importe.toFixed(2),
+      Descuento: "0.00",
+      ObjetoImp: objetoImp,
+      ...(traslados.length > 0 || retenciones.length > 0
+        ? {
+            Impuestos: {
+              ...(traslados.length > 0 ? { Traslados: { Traslado: traslados } } : {}),
+              ...(retenciones.length > 0 ? { Retenciones: { Retencion: retenciones } } : {}),
+            },
+          }
+        : {}),
+    };
+  });
+
+  const totalTrasladados = round2(
+    [...trasladosPorTasa.values()].reduce((acc, t) => acc + t.importe, 0)
+  );
+  const totalRetenidos = round2(
+    [...retencionesPorTasa.values()].reduce((acc, t) => acc + t.importe, 0)
+  );
+  const total = round2(subTotal + totalTrasladados - totalRetenidos);
+
+  // TotalImpuestos* solo debe mandarse cuando existe el nodo hijo
+  // correspondiente - declararlo en "0.00" sin Traslados/Retenciones causa
+  // rechazo del SAT ("debe ser igual a la suma de los importes...").
+  //
+  // Orden de propiedades: a nivel Comprobante:Impuestos el schema exige
+  // Retenciones antes que Traslados (al reves que dentro de cada Concepto,
+  // ver cadenaoriginal_4_0.xslt lineas 376 y 389) - JSON_CFDI40.php arma
+  // los nodos hijos en el orden en que aparecen aqui.
+  const impuestosGlobal: Record<string, unknown> = {};
+  if (retencionesPorTasa.size > 0) {
+    impuestosGlobal.TotalImpuestosRetenidos = totalRetenidos.toFixed(2);
+    impuestosGlobal.Retenciones = {
+      Retencion: [...retencionesPorTasa.values()].map((t) => ({
+        Impuesto: t.impuesto,
+        Importe: t.importe.toFixed(2),
+      })),
+    };
+  }
+  if (trasladosPorTasa.size > 0) {
+    impuestosGlobal.TotalImpuestosTrasladados = totalTrasladados.toFixed(2);
+    impuestosGlobal.Traslados = {
+      Traslado: [...trasladosPorTasa.values()].map((t) => ({
+        Base: t.base.toFixed(2),
+        Impuesto: t.impuesto,
+        TipoFactor: "Tasa",
+        TasaOCuota: t.tasa,
+        Importe: t.importe.toFixed(2),
+      })),
+    };
+  }
+
+  return {
+    Version: "4.0",
+    Serie: input.serie,
+    Folio: input.folio,
+    Fecha: fechaISO,
+    // Sello/NoCertificado/Certificado se mandan vacios a proposito: la
+    // clase JSON_CFDI40 los sobreescribe ella misma en sellarXML(). En
+    // cambio CondicionesDePago NO se toca despues - si se manda como
+    // string vacio viola el patron del schema SAT (atributo opcional que,
+    // si esta presente, no puede estar vacio) y produce "XML mal formado".
+    Sello: "",
+    NoCertificado: "",
+    Certificado: "",
+    SubTotal: subTotal.toFixed(2),
+    Descuento: "0.00",
+    Moneda: "MXN",
+    FormaPago: input.formaPago,
+    MetodoPago: input.metodoPago,
+    TipoCambio: "1",
+    Total: total.toFixed(2),
+    TipoDeComprobante: "I",
+    Exportacion: "01",
+    LugarExpedicion: input.lugarExpedicion,
+    // El orden de las propiedades importa: JSON_CFDI40.php arma los nodos
+    // del XML en el mismo orden en que aparecen aqui, y el schema CFDI 4.0
+    // (ver endpoint/xslt/xslt4.0/cadenaoriginal_4_0.xslt) exige la secuencia
+    // InformacionGlobal, CfdiRelacionados, Emisor, Receptor. Un orden
+    // distinto produce "XML mal formado" aunque el JSON en si sea valido.
+    // InformacionGlobal es obligatorio por regla del SAT (CFDI 4.0) cuando
+    // el receptor es "Publico en General" (XAXX010101000), incluso para una
+    // sola factura (no solo para el resumen periodico "factura global").
+    InformacionGlobal: {
+      Periodicidad: "01",
+      Meses: fechaISO.slice(5, 7),
+      Año: fechaISO.slice(0, 4),
+    },
+    Emisor: {
+      Rfc: input.rfcEmisor,
+      Nombre: input.nombreEmisor,
+      RegimenFiscal: input.regimenEmisor,
+    },
+    Receptor: {
+      Rfc: RECEPTOR_PUBLICO_GENERAL.Rfc,
+      Nombre: RECEPTOR_PUBLICO_GENERAL.Nombre,
+      DomicilioFiscalReceptor: input.lugarExpedicion,
+      RegimenFiscalReceptor: RECEPTOR_PUBLICO_GENERAL.RegimenFiscalReceptor,
+      UsoCFDI: RECEPTOR_PUBLICO_GENERAL.UsoCFDI,
+    },
+    Conceptos: { Concepto: conceptosJSON },
+    Impuestos: impuestosGlobal,
+  };
+}
+
+export type TimbrarResult = {
+  UUID: string;
+  FechaTimbrado: string;
+  CFDI_Base64: string;
+};
+
+export async function timbrarFactura(
+  emisorToken: string,
+  input: NuevaFacturaInput
+): Promise<PhpResponse<TimbrarResult>> {
+  const session = await getSession();
+  if (!session) return { Error: "1", DescripError: "No autenticado" };
+
+  const datosJSON = buildDatosJSON(input);
+  const datosJSON64 = Buffer.from(JSON.stringify(datosJSON)).toString("base64");
+
+  return callLegacyPhpApi<TimbrarResult>("/endpoint/apiTimbradoV2.php", {
+    SessionToken: session.token,
+    Token: emisorToken,
+    Tarea: "TIMBRADO",
+    ModoTimbrado: MODO_TIMBRADO,
+    DatosJSON: datosJSON64,
+  });
+}
