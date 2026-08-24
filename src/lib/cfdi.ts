@@ -33,6 +33,144 @@ export type CfdiImpuesto = {
   importe: string;
 };
 
+/* -------------------------- Complemento de Pagos 2.0 ------------------------- */
+
+export type CfdiDoctoRelacionado = {
+  idDocumento: string;
+  serie: string;
+  folio: string;
+  monedaDR: string;
+  equivalenciaDR: string;
+  numParcialidad: string;
+  impSaldoAnt: string;
+  impPagado: string;
+  impSaldoInsoluto: string;
+  objetoImpDR: string;
+  trasladosDR: CfdiImpuesto[];
+  retencionesDR: CfdiImpuesto[];
+};
+
+export type CfdiPago = {
+  fechaPago: string;
+  formaDePagoP: string;
+  monedaP: string;
+  tipoCambioP: string;
+  monto: string;
+  numOperacion: string;
+  doctoRelacionado: CfdiDoctoRelacionado[];
+};
+
+export type CfdiPagos = {
+  version: string;
+  totales: {
+    totalRetencionesIVA: string;
+    totalRetencionesISR: string;
+    totalRetencionesIEPS: string;
+    totalTrasladosBaseIVA16: string;
+    totalTrasladosImpuestoIVA16: string;
+    totalTrasladosBaseIVA8: string;
+    totalTrasladosImpuestoIVA8: string;
+    totalTrasladosBaseIVA0: string;
+    totalTrasladosImpuestoIVA0: string;
+    totalTrasladosBaseIVAExento: string;
+    montoTotalPagos: string;
+  };
+  pagos: CfdiPago[];
+};
+
+/* -------------------------- Complemento de Nómina 1.2 ------------------------ */
+
+export type CfdiPercepcion = {
+  tipoPercepcion: string;
+  clave: string;
+  concepto: string;
+  importeGravado: string;
+  importeExento: string;
+};
+
+export type CfdiDeduccion = {
+  tipoDeduccion: string;
+  clave: string;
+  concepto: string;
+  importe: string;
+};
+
+export type CfdiOtroPago = {
+  tipoOtroPago: string;
+  clave: string;
+  concepto: string;
+  importe: string;
+  subsidioCausado: string;
+};
+
+export type CfdiIncapacidad = {
+  diasIncapacidad: string;
+  tipoIncapacidad: string;
+  importeMonetarioPagado: string;
+};
+
+export type CfdiNomina = {
+  version: string;
+  tipoNomina: string;
+  fechaPago: string;
+  fechaInicialPago: string;
+  fechaFinalPago: string;
+  numDiasPagados: string;
+  totalPercepciones: string;
+  totalDeducciones: string;
+  totalOtrosPagos: string;
+  emisor: { registroPatronal: string; curp: string; rfcPatronOrigen: string };
+  receptor: {
+    curp: string;
+    numSeguridadSocial: string;
+    fechaInicioRelLaboral: string;
+    antiguedad: string;
+    tipoContrato: string;
+    sindicalizado: string;
+    tipoJornada: string;
+    tipoRegimen: string;
+    numEmpleado: string;
+    departamento: string;
+    puesto: string;
+    riesgoPuesto: string;
+    periodicidadPago: string;
+    banco: string;
+    cuentaBancaria: string;
+    salarioBaseCotApor: string;
+    salarioDiarioIntegrado: string;
+    claveEntFed: string;
+  };
+  percepciones: {
+    totalSueldos: string;
+    totalGravado: string;
+    totalExento: string;
+    totalSeparacionIndemnizacion: string;
+    totalJubilacionPensionRetiro: string;
+    lista: CfdiPercepcion[];
+    separacionIndemnizacion: {
+      totalPagado: string;
+      numAñosServicio: string;
+      ultimoSueldoMensOrd: string;
+      ingresoAcumulable: string;
+      ingresoNoAcumulable: string;
+    } | null;
+    jubilacionPensionRetiro: {
+      totalUnaExhibicion: string;
+      totalParcialidad: string;
+      montoDiario: string;
+      ingresoAcumulable: string;
+      ingresoNoAcumulable: string;
+    } | null;
+  };
+  deducciones: {
+    totalOtrasDeducciones: string;
+    totalImpuestosRetenidos: string;
+    lista: CfdiDeduccion[];
+  };
+  otrosPagos: CfdiOtroPago[];
+  incapacidades: CfdiIncapacidad[];
+};
+
 export type Cfdi = {
   version: string;
   serie: string;
@@ -64,6 +202,8 @@ export type Cfdi = {
   totalRetenidos: string;
   traslados: CfdiImpuesto[];
   retenciones: CfdiImpuesto[];
+  pagos: CfdiPagos | null;
+  nomina: CfdiNomina | null;
   timbre: {
     uuid: string;
     fechaTimbrado: string;
@@ -103,6 +243,177 @@ function impuestosDe(padre: Element | null, grupo: string, item: string): CfdiIm
     base: attr(el, "Base"),
     importe: attr(el, "Importe"),
   }));
+}
+
+function impuestosDrDe(doctoEl: Element | null, grupo: string, item: string): CfdiImpuesto[] {
+  const contenedor = hijos(doctoEl, "ImpuestosDR")[0] ?? null;
+  const lista = hijos(contenedor, grupo)[0] ?? null;
+  return hijos(lista, item).map((el) => ({
+    impuesto: attr(el, "ImpuestoDR"),
+    tipoFactor: attr(el, "TipoFactorDR"),
+    tasaOCuota: attr(el, "TasaOCuotaDR"),
+    base: attr(el, "BaseDR"),
+    importe: attr(el, "ImporteDR"),
+  }));
+}
+
+/** Complemento de Pagos 2.0 (namespace pago20:), si el comprobante lo trae. */
+function parsePagos(root: Element): CfdiPagos | null {
+  const pagosEl = primerDescendiente(root, "Pagos");
+  if (!pagosEl) return null;
+
+  const totalesEl = hijos(pagosEl, "Totales")[0] ?? null;
+
+  return {
+    version: attr(pagosEl, "Version"),
+    totales: {
+      totalRetencionesIVA: attr(totalesEl, "TotalRetencionesIVA"),
+      totalRetencionesISR: attr(totalesEl, "TotalRetencionesISR"),
+      totalRetencionesIEPS: attr(totalesEl, "TotalRetencionesIEPS"),
+      totalTrasladosBaseIVA16: attr(totalesEl, "TotalTrasladosBaseIVA16"),
+      totalTrasladosImpuestoIVA16: attr(totalesEl, "TotalTrasladosImpuestoIVA16"),
+      totalTrasladosBaseIVA8: attr(totalesEl, "TotalTrasladosBaseIVA8"),
+      totalTrasladosImpuestoIVA8: attr(totalesEl, "TotalTrasladosImpuestoIVA8"),
+      totalTrasladosBaseIVA0: attr(totalesEl, "TotalTrasladosBaseIVA0"),
+      totalTrasladosImpuestoIVA0: attr(totalesEl, "TotalTrasladosImpuestoIVA0"),
+      totalTrasladosBaseIVAExento: attr(totalesEl, "TotalTrasladosBaseIVAExento"),
+      montoTotalPagos: attr(totalesEl, "MontoTotalPagos"),
+    },
+    pagos: hijos(pagosEl, "Pago").map((pagoEl) => ({
+      fechaPago: attr(pagoEl, "FechaPago"),
+      formaDePagoP: attr(pagoEl, "FormaDePagoP"),
+      monedaP: attr(pagoEl, "MonedaP"),
+      tipoCambioP: attr(pagoEl, "TipoCambioP"),
+      monto: attr(pagoEl, "Monto"),
+      numOperacion: attr(pagoEl, "NumOperacion"),
+      doctoRelacionado: hijos(pagoEl, "DoctoRelacionado").map((d) => ({
+        idDocumento: attr(d, "IdDocumento"),
+        serie: attr(d, "Serie"),
+        folio: attr(d, "Folio"),
+        monedaDR: attr(d, "MonedaDR"),
+        equivalenciaDR: attr(d, "EquivalenciaDR"),
+        numParcialidad: attr(d, "NumParcialidad"),
+        impSaldoAnt: attr(d, "ImpSaldoAnt"),
+        impPagado: attr(d, "ImpPagado"),
+        impSaldoInsoluto: attr(d, "ImpSaldoInsoluto"),
+        objetoImpDR: attr(d, "ObjetoImpDR"),
+        trasladosDR: impuestosDrDe(d, "TrasladosDR", "TrasladoDR"),
+        retencionesDR: impuestosDrDe(d, "RetencionesDR", "RetencionDR"),
+      })),
+    })),
+  };
+}
+
+/** Complemento de Nómina 1.2 (namespace nomina12:), si el comprobante lo trae. */
+function parseNomina(root: Element): CfdiNomina | null {
+  const nominaEl = primerDescendiente(root, "Nomina");
+  if (!nominaEl) return null;
+
+  const emisorEl = hijos(nominaEl, "Emisor")[0] ?? null;
+  const receptorEl = hijos(nominaEl, "Receptor")[0] ?? null;
+  const percepcionesEl = hijos(nominaEl, "Percepciones")[0] ?? null;
+  const deduccionesEl = hijos(nominaEl, "Deducciones")[0] ?? null;
+  const otrosPagosEl = hijos(nominaEl, "OtrosPagos")[0] ?? null;
+  const incapacidadesEl = hijos(nominaEl, "Incapacidades")[0] ?? null;
+
+  const separacionEl = hijos(percepcionesEl, "SeparacionIndemnizacion")[0] ?? null;
+  const jubilacionEl = hijos(percepcionesEl, "JubilacionPensionRetiro")[0] ?? null;
+
+  const otrosPagos = hijos(otrosPagosEl, "OtroPago").map((el) => {
+    const subsidioEl = hijos(el, "SubsidioAlEmpleo")[0] ?? null;
+    return {
+      tipoOtroPago: attr(el, "TipoOtroPago"),
+      clave: attr(el, "Clave"),
+      concepto: attr(el, "Concepto"),
+      importe: attr(el, "Importe"),
+      subsidioCausado: subsidioEl ? attr(subsidioEl, "SubsidioCausado") : "",
+    };
+  });
+
+  return {
+    version: attr(nominaEl, "Version"),
+    tipoNomina: attr(nominaEl, "TipoNomina"),
+    fechaPago: attr(nominaEl, "FechaPago"),
+    fechaInicialPago: attr(nominaEl, "FechaInicialPago"),
+    fechaFinalPago: attr(nominaEl, "FechaFinalPago"),
+    numDiasPagados: attr(nominaEl, "NumDiasPagados"),
+    totalPercepciones: attr(nominaEl, "TotalPercepciones"),
+    totalDeducciones: attr(nominaEl, "TotalDeducciones"),
+    totalOtrosPagos: attr(nominaEl, "TotalOtrosPagos"),
+    emisor: {
+      registroPatronal: attr(emisorEl, "RegistroPatronal"),
+      curp: attr(emisorEl, "Curp"),
+      rfcPatronOrigen: attr(emisorEl, "RfcPatronOrigen"),
+    },
+    receptor: {
+      curp: attr(receptorEl, "Curp"),
+      numSeguridadSocial: attr(receptorEl, "NumSeguridadSocial"),
+      fechaInicioRelLaboral: attr(receptorEl, "FechaInicioRelLaboral"),
+      antiguedad: attr(receptorEl, "Antigüedad"),
+      tipoContrato: attr(receptorEl, "TipoContrato"),
+      sindicalizado: attr(receptorEl, "Sindicalizado"),
+      tipoJornada: attr(receptorEl, "TipoJornada"),
+      tipoRegimen: attr(receptorEl, "TipoRegimen"),
+      numEmpleado: attr(receptorEl, "NumEmpleado"),
+      departamento: attr(receptorEl, "Departamento"),
+      puesto: attr(receptorEl, "Puesto"),
+      riesgoPuesto: attr(receptorEl, "RiesgoPuesto"),
+      periodicidadPago: attr(receptorEl, "PeriodicidadPago"),
+      banco: attr(receptorEl, "Banco"),
+      cuentaBancaria: attr(receptorEl, "CuentaBancaria"),
+      salarioBaseCotApor: attr(receptorEl, "SalarioBaseCotApor"),
+      salarioDiarioIntegrado: attr(receptorEl, "SalarioDiarioIntegrado"),
+      claveEntFed: attr(receptorEl, "ClaveEntFed"),
+    },
+    percepciones: {
+      totalSueldos: attr(percepcionesEl, "TotalSueldos"),
+      totalGravado: attr(percepcionesEl, "TotalGravado"),
+      totalExento: attr(percepcionesEl, "TotalExento"),
+      totalSeparacionIndemnizacion: attr(percepcionesEl, "TotalSeparacionIndemnizacion"),
+      totalJubilacionPensionRetiro: attr(percepcionesEl, "TotalJubilacionPensionRetiro"),
+      lista: hijos(percepcionesEl, "Percepcion").map((el) => ({
+        tipoPercepcion: attr(el, "TipoPercepcion"),
+        clave: attr(el, "Clave"),
+        concepto: attr(el, "Concepto"),
+        importeGravado: attr(el, "ImporteGravado"),
+        importeExento: attr(el, "ImporteExento"),
+      })),
+      separacionIndemnizacion: separacionEl
+        ? {
+            totalPagado: attr(separacionEl, "TotalPagado"),
+            numAñosServicio: attr(separacionEl, "NumAñosServicio"),
+            ultimoSueldoMensOrd: attr(separacionEl, "UltimoSueldoMensOrd"),
+            ingresoAcumulable: attr(separacionEl, "IngresoAcumulable"),
+            ingresoNoAcumulable: attr(separacionEl, "IngresoNoAcumulable"),
+          }
+        : null,
+      jubilacionPensionRetiro: jubilacionEl
+        ? {
+            totalUnaExhibicion: attr(jubilacionEl, "TotalUnaExhibicion"),
+            totalParcialidad: attr(jubilacionEl, "TotalParcialidad"),
+            montoDiario: attr(jubilacionEl, "MontoDiario"),
+            ingresoAcumulable: attr(jubilacionEl, "IngresoAcumulable"),
+            ingresoNoAcumulable: attr(jubilacionEl, "IngresoNoAcumulable"),
+          }
+        : null,
+    },
+    deducciones: {
+      totalOtrasDeducciones: attr(deduccionesEl, "TotalOtrasDeducciones"),
+      totalImpuestosRetenidos: attr(deduccionesEl, "TotalImpuestosRetenidos"),
+      lista: hijos(deduccionesEl, "Deduccion").map((el) => ({
+        tipoDeduccion: attr(el, "TipoDeduccion"),
+        clave: attr(el, "Clave"),
+        concepto: attr(el, "Concepto"),
+        importe: attr(el, "Importe"),
+      })),
+    },
+    otrosPagos,
+    incapacidades: hijos(incapacidadesEl, "Incapacidad").map((el) => ({
+      diasIncapacidad: attr(el, "DiasIncapacidad"),
+      tipoIncapacidad: attr(el, "TipoIncapacidad"),
+      importeMonetarioPagado: attr(el, "ImporteMonetarioPagado"),
+    })),
+  };
 }
 
 /** Lanza si el XML no es un Comprobante válido. */
@@ -173,6 +484,8 @@ export function parseCfdi(xml: string): Cfdi {
     totalRetenidos: attr(impuestosNodo, "TotalImpuestosRetenidos"),
     traslados: impuestosDe(root, "Traslados", "Traslado"),
     retenciones: impuestosDe(root, "Retenciones", "Retencion"),
+    pagos: parsePagos(root),
+    nomina: parseNomina(root),
     timbre: timbreEl
       ? {
           uuid: attr(timbreEl, "UUID"),

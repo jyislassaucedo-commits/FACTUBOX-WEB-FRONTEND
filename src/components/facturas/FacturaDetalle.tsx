@@ -15,7 +15,7 @@ import {
   Th,
   cx,
 } from "@/components/ui";
-import { base64AXml, fechaHora, money, parseCfdi, type Cfdi } from "@/lib/cfdi";
+import { base64AXml, fechaHora, money, parseCfdi, type Cfdi, type CfdiNomina } from "@/lib/cfdi";
 import { tipoSerie } from "@/lib/emisorNav";
 import {
   FORMAS_PAGO,
@@ -26,6 +26,8 @@ import {
 import type { Factura } from "@/lib/facturasShared";
 import { validarEstatusSat, type ResultadoEstatus } from "@/lib/estatusSat";
 import { GenerarPdfMenu } from "./GenerarPdfMenu";
+import { PagosDetalle } from "./PagosDetalle";
+import { NominaDetalle } from "./NominaDetalle";
 
 function etiqueta(
   catalogo: ReadonlyArray<{ value: string; label: string }>,
@@ -272,7 +274,7 @@ export function FacturaDetalle({
             </Card>
 
             <Card>
-              <CardHeader title="Receptor" />
+              <CardHeader title={cfdi?.nomina ? "Receptor / Trabajador" : "Receptor"} />
               <CardBody className="py-1">
                 <Dato
                   label="Razón social"
@@ -292,12 +294,18 @@ export function FacturaDetalle({
                   mono
                 />
                 <Dato label="Uso del CFDI" valor={etiqueta(USOS_CFDI, cfdi?.receptor.usoCfdi ?? "")} />
+                {cfdi?.nomina && <DatosTrabajador receptor={cfdi.nomina.receptor} />}
               </CardBody>
             </Card>
           </div>
 
-          {/* ---------- Conceptos ---------- */}
-          {cfdi && cfdi.conceptos.length > 0 && (
+          {/* ---------- Conceptos / Pagos / Nómina, según el tipo de comprobante ---------- */}
+          {cfdi?.tipoDeComprobante === "P" && cfdi.pagos ? (
+            <PagosDetalle pagos={cfdi.pagos} moneda={cfdi.moneda} />
+          ) : cfdi?.tipoDeComprobante === "N" && cfdi.nomina ? (
+            <NominaDetalle nomina={cfdi.nomina} moneda={cfdi.moneda} />
+          ) : (
+            cfdi && cfdi.conceptos.length > 0 && (
             <Card>
               <CardHeader
                 title="Conceptos"
@@ -349,6 +357,7 @@ export function FacturaDetalle({
                 </tbody>
               </Table>
             </Card>
+            )
           )}
 
           {/* ---------- Datos del comprobante ---------- */}
@@ -415,6 +424,44 @@ function Mini({ label, valor }: { label: string; valor: string }) {
       <dt className="text-ink-3">{label}</dt>
       <dd className="font-mono font-semibold text-ink">{valor}</dd>
     </div>
+  );
+}
+
+/** Datos del trabajador (nomina12:Receptor), fundidos en la misma tarjeta del receptor. */
+function DatosTrabajador({ receptor }: { receptor: CfdiNomina["receptor"] }) {
+  const filas: Array<[string, string]> = [
+    ["CURP", receptor.curp],
+    ["Núm. de trabajador", receptor.numEmpleado],
+    ["Departamento", receptor.departamento],
+    ["Puesto", receptor.puesto],
+    ["Tipo de régimen", receptor.tipoRegimen],
+    ["Núm. seguridad social", receptor.numSeguridadSocial],
+    ["Fecha inicio rel. laboral", receptor.fechaInicioRelLaboral],
+    ["Antigüedad", receptor.antiguedad],
+    ["Tipo de contrato", receptor.tipoContrato],
+    ["Tipo de jornada", receptor.tipoJornada],
+    ["Riesgo de puesto", receptor.riesgoPuesto],
+    ["Periodicidad de pago", receptor.periodicidadPago],
+    ["Sindicalizado", receptor.sindicalizado],
+    ["Entidad federativa", receptor.claveEntFed],
+    ["Banco", receptor.banco],
+    ["Cuenta bancaria", receptor.cuentaBancaria],
+  ];
+
+  return (
+    <>
+      {filas
+        .filter(([, valor]) => valor)
+        .map(([label, valor]) => (
+          <Dato key={label} label={label} valor={valor} />
+        ))}
+      {receptor.salarioDiarioIntegrado && (
+        <Dato label="Salario diario integrado" valor={money(receptor.salarioDiarioIntegrado)} mono />
+      )}
+      {receptor.salarioBaseCotApor && (
+        <Dato label="Salario base de cotización" valor={money(receptor.salarioBaseCotApor)} mono />
+      )}
+    </>
   );
 }
 
