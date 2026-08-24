@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/LogoutButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserMenu, UserMenuMovil } from "@/components/UserMenu";
 import { ToastProvider, cx } from "@/components/ui";
 import { ProgresoProvider } from "@/components/carga/ProgresoProvider";
@@ -88,6 +89,7 @@ export function AppShell({
 
           <div className="ml-auto flex items-center gap-2">
             {timbres && <TimbresBadge timbres={timbres} />}
+            <ThemeToggle />
           </div>
 
           <div className="hidden items-center md:flex">
@@ -109,14 +111,17 @@ export function AppShell({
             <div className="absolute left-0 top-0 h-full w-72 overflow-y-auto bg-surface p-4 shadow-pop">
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-sm font-semibold text-ink">Menú</span>
-                <button
-                  type="button"
-                  onClick={() => setMobileNavOpen(false)}
-                  className="focus-brand rounded-lg p-1.5 text-ink-2 hover:bg-line-2"
-                  aria-label="Cerrar menú"
-                >
-                  <CloseIcon />
-                </button>
+                <div className="flex items-center gap-1">
+                  <ThemeToggle />
+                  <button
+                    type="button"
+                    onClick={() => setMobileNavOpen(false)}
+                    className="focus-brand rounded-lg p-1.5 text-ink-2 hover:bg-line-2"
+                    aria-label="Cerrar menú"
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
               </div>
 
               <nav className="space-y-1">
