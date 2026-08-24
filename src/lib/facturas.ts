@@ -210,3 +210,51 @@ export async function getFacturaPdf(
     }
   );
 }
+
+export type PagoPrevio = {
+  UuidPago: string;
+  SerieFolio: string;
+  FechaPago: string;
+  MonedaP: string;
+  NumParcialidad: string;
+  ImpSaldoAnt: string;
+  ImpPagado: string;
+  ImpSaldoInsoluto: string;
+};
+
+export type PagosRelacionados = {
+  Origen: {
+    Uuid: string;
+    Serie: string;
+    Folio: string;
+    Total: string;
+    Moneda: string;
+    RfcReceptor: string;
+    NombreReceptor: string;
+    RegimenFiscalReceptor: string;
+    DomicilioFiscalReceptor: string;
+    MetodoPago: string;
+  };
+  SaldoPendiente: string;
+  SiguienteParcialidad: string;
+  PagosPrevios: PagoPrevio[];
+};
+
+/**
+ * Pagos ya timbrados (no cancelados) que ya saldaron parte de una factura
+ * PPD, detectados leyendo el DoctoRelacionado de cada complemento de pago
+ * del mismo receptor. Alimenta el paso de "Pagos" del asistente de nueva
+ * factura: cuánto queda pendiente y con qué número de parcialidad sigue.
+ */
+export async function getPagosRelacionados(
+  rfcEmisor: string,
+  uuid: string
+): Promise<PhpResponse<PagosRelacionados>> {
+  const session = await getSession();
+  if (!session) return { Error: "1", DescripError: "No autenticado" };
+
+  return callLegacyPhpApi<PagosRelacionados>(
+    "/maa/mvc/Factura/api/getPagosRelacionadosV2.php",
+    { Token: session.token, RfcEmisor: rfcEmisor, UUID: uuid }
+  );
+}
