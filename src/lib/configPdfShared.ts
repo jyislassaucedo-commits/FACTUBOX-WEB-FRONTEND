@@ -28,6 +28,8 @@ export type ConfigPdfRaw = {
 };
 
 export type ConfigPdfForm = {
+  /** Ausente en un borrador nuevo que aún no se guarda. */
+  id?: string;
   nombre: string;
   colorFondo: string;
   colorFuente: string;
@@ -69,6 +71,7 @@ export const CONFIG_PDF_DEFAULT: ConfigPdfForm = {
 
 export function rawToForm(raw: ConfigPdfRaw): ConfigPdfForm {
   return {
+    id: raw.Id,
     nombre: raw.Nombre,
     colorFondo: argbIntToHex(raw.ColorFondo, CONFIG_PDF_DEFAULT.colorFondo),
     colorFuente: argbIntToHex(raw.ColorFuente, CONFIG_PDF_DEFAULT.colorFuente),

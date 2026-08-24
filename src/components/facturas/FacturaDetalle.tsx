@@ -25,6 +25,7 @@ import {
 } from "@/lib/catalogosSat";
 import type { Factura } from "@/lib/facturasShared";
 import { validarEstatusSat, type ResultadoEstatus } from "@/lib/estatusSat";
+import { GenerarPdfMenu } from "./GenerarPdfMenu";
 
 function etiqueta(
   catalogo: ReadonlyArray<{ value: string; label: string }>,
@@ -44,13 +45,11 @@ export function FacturaDetalle({
   factura,
   onClose,
   onCancelar,
-  onPdf,
   onEstatusActualizado,
 }: {
   factura: Factura;
   onClose: () => void;
   onCancelar: () => void;
-  onPdf: () => void;
   /** Avisa al listado para que refresque la fila sin recargar todo. */
   onEstatusActualizado?: (uuid: string, estado: string) => void;
 }) {
@@ -141,9 +140,13 @@ export function FacturaDetalle({
           <Button variant="secondary" onClick={validar} disabled={validando}>
             {validando ? "Consultando SAT…" : "Validar en el SAT"}
           </Button>
-          <Button variant="secondary" onClick={onPdf}>
-            Generar PDF
-          </Button>
+          <GenerarPdfMenu
+            rfc={factura.Rfc}
+            uuid={factura.Uuid}
+            size="md"
+            variant="secondary"
+            label="Generar PDF"
+          />
           <Button variant="secondary" onClick={descargarXml} disabled={!base64}>
             Descargar XML
           </Button>

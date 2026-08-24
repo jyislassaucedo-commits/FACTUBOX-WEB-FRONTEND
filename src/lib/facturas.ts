@@ -186,24 +186,27 @@ export async function consultarEstatusSat(input: {
   });
 }
 
-/* ---------------------------------------------------------------------------
-   PDF — PENDIENTE
-   ---------------------------------------------------------------------------
-   Todavía no existe un endpoint que genere el PDF de una factura ya timbrada:
-   en `public_html/maa/mvc/Factura/api/` solo hay listado, detalle, XML y
-   estatus. La UI ya tiene el botón cableado a esta función para que cuando el
-   endpoint exista solo haya que rellenar el cuerpo.
-
-   Cuando se implemente, lo natural es que reciba el UUID y la ConfigPdf que ya
-   trae la factura (`IdConfigPdf`) y devuelva el PDF en base64, igual que
-   getFacturaTimbV2 hace con el XML.
---------------------------------------------------------------------------- */
+/**
+ * PDF (representación impresa) de una factura ya timbrada.
+ *
+ * `idConfigPdf` es opcional: si no se manda, el backend usa el diseño que ya
+ * traía la factura al timbrarse (`FACTURA.idconfigpdf`), y si tampoco hay
+ * eso, cae a un diseño por default. Se manda cuando el usuario elige
+ * explícitamente con qué diseño generar el PDF (ver PdfConfigPicker).
+ */
 export async function getFacturaPdf(
-  uuid: string
+  uuid: string,
+  idConfigPdf?: string
 ): Promise<PhpResponse<{ PDF_Base64: string }>> {
-  return {
-    Error: "1",
-    DescripError:
-      `La generación de PDF todavía no está disponible: falta el endpoint en el backend (UUID ${uuid}).`,
-  };
+  const session = await getSession();
+  if (!session) return { Error: "1", DescripError: "No autenticado" };
+
+  return callLegacyPhpApi<{ PDF_Base64: string }>(
+    "/maa/mvc/Factura/api/getFacturaPdfV2.php",
+    {
+      Token: session.token,
+      UUID: uuid,
+      ...(idConfigPdf ? { IdConfigPdf: idConfigPdf } : {}),
+    }
+  );
 }

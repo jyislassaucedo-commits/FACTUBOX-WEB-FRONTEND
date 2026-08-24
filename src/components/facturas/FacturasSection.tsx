@@ -35,6 +35,7 @@ import type { Factura, FacturasFiltros } from "@/lib/facturasShared";
 import type { Emisor } from "@/lib/emisores";
 import { FacturaDetalle } from "./FacturaDetalle";
 import { CancelarFacturaModal } from "./CancelarFacturaModal";
+import { GenerarPdfMenu } from "./GenerarPdfMenu";
 
 type Orden = "fecha-desc" | "fecha-asc" | "total-desc" | "total-asc";
 
@@ -169,27 +170,6 @@ export function FacturasSection({
     } finally {
       setBajando(null);
     }
-  }
-
-  /**
-   * PDF: el backend todavía no lo genera. Se llama igual a la ruta para que el
-   * día que exista el endpoint esto funcione sin tocar la UI; hoy responde 501
-   * con el motivo.
-   */
-  async function generarPdf(factura: Factura) {
-    const res = await fetch(`/api/facturas/${encodeURIComponent(factura.Uuid)}/pdf`);
-    const body = await res.json();
-    if (!res.ok) {
-      toast(body.error ?? "La generación de PDF aún no está disponible", "danger");
-      return;
-    }
-    const bytes = Uint8Array.from(atob(body.base64), (c) => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${factura.Uuid}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   /** El estatus recién consultado gana sobre el que venía del servidor. */
@@ -517,9 +497,7 @@ export function FacturasSection({
                           >
                             {bajando === f.Uuid ? "…" : "XML"}
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => generarPdf(f)}>
-                            PDF
-                          </Button>
+                          <GenerarPdfMenu rfc={f.Rfc} uuid={f.Uuid} />
                           {!cancelada && (
                             <Button
                               variant="danger"
@@ -559,7 +537,6 @@ export function FacturasSection({
         <FacturaDetalle
           factura={detalle}
           onClose={() => setDetalle(null)}
-          onPdf={() => generarPdf(detalle)}
           onEstatusActualizado={(uuid, estado) => {
             setEstatusFresco((prev) => ({ ...prev, [uuid]: estado }));
             router.refresh();
