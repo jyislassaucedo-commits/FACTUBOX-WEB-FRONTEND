@@ -15,12 +15,17 @@ export function GenerarPdfMenu({
   size = "sm",
   variant = "ghost",
   label = "PDF",
+  placement = "bottom",
 }: {
   rfc: string;
   uuid: string;
   size?: "sm" | "md";
   variant?: ButtonVariant;
   label?: string;
+  /** "top" cuando el botón vive cerca del borde inferior de la pantalla
+   * (p. ej. el pie de un Drawer) y el menú necesita abrir hacia arriba para
+   * no salirse de la ventana. */
+  placement?: "top" | "bottom";
 }) {
   const [open, setOpen] = useState(false);
   const [configs, setConfigs] = useState<ConfigPdfForm[] | null>(null);
@@ -96,7 +101,10 @@ export function GenerarPdfMenu({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-[calc(100%+4px)] z-30 w-64 rounded-xl border border-line bg-surface p-1.5 shadow-pop"
+          className={cx(
+            "absolute right-0 z-30 max-h-[60vh] w-64 overflow-y-auto rounded-xl border border-line bg-surface p-1.5 shadow-pop",
+            placement === "top" ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]"
+          )}
         >
           <p className="px-2.5 pb-1.5 pt-1 text-[10.5px] font-bold uppercase tracking-[0.08em] text-ink-4">
             Generar PDF con...

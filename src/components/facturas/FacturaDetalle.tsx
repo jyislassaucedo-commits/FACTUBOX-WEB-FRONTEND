@@ -146,6 +146,7 @@ export function FacturaDetalle({
             size="md"
             variant="secondary"
             label="Generar PDF"
+            placement="top"
           />
           <Button variant="secondary" onClick={descargarXml} disabled={!base64}>
             Descargar XML
