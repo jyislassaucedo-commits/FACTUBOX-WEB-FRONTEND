@@ -90,12 +90,12 @@ export function PagosDetalle({ pagos, moneda }: { pagos: CfdiPagos; moneda: stri
                           <Pill key={`t${k}`} tone="info">
                             Traslado {NOMBRE_IMPUESTO[t.impuesto] ?? t.impuesto}{" "}
                             {t.tipoFactor === "Tasa" ? `${(parseFloat(t.tasaOCuota) * 100).toFixed(2)}%` : t.tasaOCuota}{" "}
-                            · {money(t.importe, moneda)}
+                            · {money(t.importe, pago.monedaP || moneda)}
                           </Pill>
                         ))}
                         {d.retencionesDR.map((t, k) => (
                           <Pill key={`r${k}`} tone="warn">
-                            Retención {NOMBRE_IMPUESTO[t.impuesto] ?? t.impuesto} · {money(t.importe, moneda)}
+                            Retención {NOMBRE_IMPUESTO[t.impuesto] ?? t.impuesto} · {money(t.importe, pago.monedaP || moneda)}
                           </Pill>
                         ))}
                       </span>
