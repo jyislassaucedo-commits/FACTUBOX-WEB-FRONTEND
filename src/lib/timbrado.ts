@@ -1,6 +1,11 @@
 import { callLegacyPhpApi, type PhpResponse } from "./phpApi";
 import { getSession } from "./session";
-import { RECEPTOR_PUBLICO_GENERAL } from "./catalogosSat";
+import {
+  IMPUESTO_IEPS,
+  IMPUESTO_ISR,
+  IMPUESTO_IVA,
+  RECEPTOR_PUBLICO_GENERAL,
+} from "./catalogosSat";
 
 const MODO_TIMBRADO = process.env.MODO_TIMBRADO || "PRUEBAS";
 
@@ -29,7 +34,7 @@ export type ConceptoInput = {
 };
 
 /** Tipos de comprobante que esta pantalla sabe armar hoy. */
-export type TipoComprobante = "I" | "E";
+export type TipoComprobante = "I" | "E" | "P";
 
 /**
  * Documento(s) que este CFDI relaciona. Para una nota de crédito (Egreso) el
@@ -38,6 +43,44 @@ export type TipoComprobante = "I" | "E";
 export type CfdiRelacionadosInput = {
   tipoRelacion: string;
   uuids: string[];
+};
+
+/** Un traslado o retención dentro de un DoctoRelacionado (sufijo *DR) o del
+ * Pago mismo (sufijo *P): mismos campos en ambos casos. */
+export type ImpuestoPagoInput = {
+  base: string;
+  impuesto: string;
+  tipoFactor: string;
+  tasaOCuota: string;
+  importe: string;
+};
+
+/** Documento que este pago salda, total o parcialmente. */
+export type DoctoRelacionadoInput = {
+  idDocumento: string;
+  serie: string;
+  folio: string;
+  monedaDR: string;
+  equivalenciaDR: string;
+  numParcialidad: string;
+  impSaldoAnt: string;
+  impPagado: string;
+  impSaldoInsoluto: string;
+  objetoImpDR: string;
+  trasladosDR: ImpuestoPagoInput[];
+  retencionesDR: ImpuestoPagoInput[];
+};
+
+/** Hoy el asistente arma un solo <Pago> con un solo <DoctoRelacionado> por
+ * comprobante - pagar varias facturas en un mismo evento queda para más
+ * adelante. */
+export type PagoInput = {
+  fechaPago: string;
+  formaDePagoP: string;
+  monedaP: string;
+  tipoCambioP: string;
+  monto: string;
+  doctoRelacionado: DoctoRelacionadoInput[];
 };
 
 export type NuevaFacturaInput = {
@@ -58,6 +101,8 @@ export type NuevaFacturaInput = {
   receptorDomicilioFiscal: string;
   receptorUsoCfdi: string;
   conceptos: ConceptoInput[];
+  /** Solo para tipoDeComprobante "P". */
+  pago?: PagoInput;
 };
 
 function round2(n: number) {
@@ -83,10 +128,188 @@ function fechaLocalMexico(fecha: Date): string {
   return `${obtener("year")}-${obtener("month")}-${obtener("day")}T${obtener("hour")}:${obtener("minute")}:${obtener("second")}`;
 }
 
+/**
+ * Arma el JSON del complemento de Pagos 2.0. Verificado corriendo
+ * JSON_CFDI40->crearXML() directamente (Tarea "ARMADO", que no timbra ni
+ * consume nada) contra este mismo armado: la forma correcta es "objeto
+ * envoltorio { claveSingular: [...] }" en cada nivel plural - igual patrón
+ * que Conceptos.Concepto e Impuestos.Traslados.Traslado en el otro camino
+ * de esta función, NO un arreglo plano como el que trae algún JSON de
+ * ejemplo suelto en el repo (ese es de una versión distinta del backend).
+ */
+function buildDatosJSONPago(input: NuevaFacturaInput, pago: PagoInput) {
+  const fechaISO = fechaLocalMexico(new Date());
+
+  const trasladosTotales = new Map<string, { impuesto: string; tasa: string; base: number; importe: number }>();
+  const retencionesTotales = new Map<string, { impuesto: string; tasa: string; base: number; importe: number }>();
+
+  function acumular(
+    mapa: Map<string, { impuesto: string; tasa: string; base: number; importe: number }>,
+    imp: ImpuestoPagoInput
+  ) {
+    const key = `${imp.impuesto}-${imp.tasaOCuota}`;
+    const acc = mapa.get(key) ?? { impuesto: imp.impuesto, tasa: imp.tasaOCuota, base: 0, importe: 0 };
+    acc.base += parseFloat(imp.base);
+    acc.importe += parseFloat(imp.importe);
+    mapa.set(key, acc);
+  }
+
+  function nodoImpuesto(imp: ImpuestoPagoInput, sufijo: "DR" | "P") {
+    return {
+      [`Base${sufijo}`]: imp.base,
+      [`Impuesto${sufijo}`]: imp.impuesto,
+      [`TipoFactor${sufijo}`]: imp.tipoFactor,
+      [`TasaOCuota${sufijo}`]: imp.tasaOCuota,
+      [`Importe${sufijo}`]: imp.importe,
+    };
+  }
+
+  const doctosJSON = pago.doctoRelacionado.map((d) => {
+    d.trasladosDR.forEach((t) => acumular(trasladosTotales, t));
+    d.retencionesDR.forEach((t) => acumular(retencionesTotales, t));
+
+    const impuestosDR: Record<string, unknown> = {};
+    if (d.trasladosDR.length > 0) {
+      impuestosDR.TrasladosDR = { TrasladoDR: d.trasladosDR.map((t) => nodoImpuesto(t, "DR")) };
+    }
+    if (d.retencionesDR.length > 0) {
+      impuestosDR.RetencionesDR = { RetencionDR: d.retencionesDR.map((t) => nodoImpuesto(t, "DR")) };
+    }
+
+    return {
+      IdDocumento: d.idDocumento,
+      ...(d.serie ? { Serie: d.serie } : {}),
+      ...(d.folio ? { Folio: d.folio } : {}),
+      MonedaDR: d.monedaDR,
+      EquivalenciaDR: d.equivalenciaDR,
+      NumParcialidad: d.numParcialidad,
+      ImpSaldoAnt: d.impSaldoAnt,
+      ImpPagado: d.impPagado,
+      ImpSaldoInsoluto: d.impSaldoInsoluto,
+      ObjetoImpDR: d.objetoImpDR,
+      ...(Object.keys(impuestosDR).length > 0 ? { ImpuestosDR: impuestosDR } : {}),
+    };
+  });
+
+  const impuestosP: Record<string, unknown> = {};
+  if (trasladosTotales.size > 0) {
+    impuestosP.TrasladosP = {
+      TrasladoP: [...trasladosTotales.values()].map((t) =>
+        nodoImpuesto(
+          { base: t.base.toFixed(6), impuesto: t.impuesto, tipoFactor: "Tasa", tasaOCuota: t.tasa, importe: round2(t.importe).toFixed(2) },
+          "P"
+        )
+      ),
+    };
+  }
+  if (retencionesTotales.size > 0) {
+    impuestosP.RetencionesP = {
+      RetencionP: [...retencionesTotales.values()].map((t) =>
+        nodoImpuesto(
+          { base: t.base.toFixed(6), impuesto: t.impuesto, tipoFactor: "Tasa", tasaOCuota: t.tasa, importe: round2(t.importe).toFixed(2) },
+          "P"
+        )
+      ),
+    };
+  }
+
+  const pagoJSON = {
+    FechaPago: pago.fechaPago,
+    FormaDePagoP: pago.formaDePagoP,
+    MonedaP: pago.monedaP,
+    TipoCambioP: pago.tipoCambioP || "1",
+    Monto: pago.monto,
+    DoctoRelacionado: doctosJSON,
+    ...(Object.keys(impuestosP).length > 0 ? { ImpuestosP: impuestosP } : {}),
+  };
+
+  // Solo IVA tiene un campo dedicado por tasa en Totales (16/8/0%); ISR e
+  // IEPS retenidos van en un total único sin desglose por tasa. Una tasa de
+  // IVA fuera de este catálogo (rarísimo) simplemente no suma a Totales -
+  // el desglose real sigue yendo en cada DoctoRelacionado/Pago.
+  const SUFIJO_IVA: Record<string, string> = { "0.160000": "16", "0.080000": "8", "0.000000": "0" };
+  const CAMPO_RETENCION: Record<string, string> = {
+    [IMPUESTO_IVA]: "TotalRetencionesIVA",
+    [IMPUESTO_ISR]: "TotalRetencionesISR",
+    [IMPUESTO_IEPS]: "TotalRetencionesIEPS",
+  };
+
+  const totales: Record<string, string> = {};
+  for (const t of trasladosTotales.values()) {
+    if (t.impuesto !== IMPUESTO_IVA) continue;
+    const sufijo = SUFIJO_IVA[t.tasa];
+    if (!sufijo) continue;
+    totales[`TotalTrasladosBaseIVA${sufijo}`] = t.base.toFixed(2);
+    totales[`TotalTrasladosImpuestoIVA${sufijo}`] = round2(t.importe).toFixed(2);
+  }
+  for (const t of retencionesTotales.values()) {
+    const campo = CAMPO_RETENCION[t.impuesto];
+    if (!campo) continue;
+    const previo = totales[campo] ? parseFloat(totales[campo]) : 0;
+    totales[campo] = round2(previo + t.importe).toFixed(2);
+  }
+  totales.MontoTotalPagos = round2(parseFloat(pago.monto)).toFixed(2);
+
+  return {
+    Version: "4.0",
+    Serie: input.serie,
+    Folio: input.folio,
+    Fecha: fechaISO,
+    Sello: "",
+    NoCertificado: "",
+    Certificado: "",
+    SubTotal: "0",
+    Moneda: "XXX",
+    Total: "0",
+    TipoDeComprobante: "P",
+    Exportacion: "01",
+    LugarExpedicion: input.lugarExpedicion,
+    Emisor: {
+      Rfc: input.rfcEmisor,
+      Nombre: input.nombreEmisor,
+      RegimenFiscal: input.regimenEmisor,
+    },
+    Receptor: {
+      Rfc: input.receptorRfc,
+      Nombre: input.receptorNombre,
+      DomicilioFiscalReceptor: input.receptorDomicilioFiscal,
+      RegimenFiscalReceptor: input.receptorRegimenFiscal,
+      // Fijo por catálogo del SAT: un CFDI de Pago siempre lleva CP01.
+      UsoCFDI: "CP01",
+    },
+    // Concepto de relleno: el SAT exige al menos uno, pero en un CFDI de
+    // Pago no representa nada real (Importe 0, sin objeto de impuesto).
+    Conceptos: {
+      Concepto: [
+        {
+          ClaveProdServ: "84111506",
+          Cantidad: "1",
+          ClaveUnidad: "ACT",
+          Descripcion: "Pago",
+          ValorUnitario: "0",
+          Importe: "0",
+          ObjetoImp: "01",
+        },
+      ],
+    },
+    Complemento: {
+      Pagos: {
+        Version: "2.0",
+        Totales: totales,
+        Pago: [pagoJSON],
+      },
+    },
+  };
+}
+
 // Arma el JSON CFDI 4.0 que espera JSON_CFDI40 (mismo formato usado por el
 // timbrado existente), calculando totales e impuestos globales a partir de
 // los conceptos capturados.
 function buildDatosJSON(input: NuevaFacturaInput) {
+  if (input.tipoDeComprobante === "P" && input.pago) {
+    return buildDatosJSONPago(input, input.pago);
+  }
+
   const ahora = new Date();
   const fechaISO = fechaLocalMexico(ahora);
 

@@ -19,10 +19,12 @@ import { money } from "@/lib/cfdi";
 import {
   BORRADOR_INICIAL,
   CONCEPTO_VACIO,
-  PASOS,
+  PAGO_VACIO,
   RFC_PUBLICO_GENERAL,
   calcularTotales,
+  construirDoctoRelacionado,
   etiquetaTipo,
+  pasosPara,
   receptorDe,
   validar,
   type FacturaBorrador,
@@ -31,6 +33,7 @@ import {
 import {
   PasoConceptos,
   PasoEmisor,
+  PasoPagos,
   PasoReceptor,
   PasoRevision,
   PasoTipo,
@@ -47,17 +50,30 @@ import { TIMBRES_BAJOS, type Timbres } from "@/lib/timbresShared";
 export function NuevaFacturaWizard({
   emisores,
   timbres,
+  origenRfc,
+  origenUuid,
 }: {
   emisores: Emisor[];
   timbres: Timbres | null;
+  /** Vienen de "Pagar factura" en el detalle: saltan directo al paso de pago. */
+  origenRfc?: string;
+  origenUuid?: string;
 }) {
   const toast = useToast();
 
+  // "Pagar factura" manda el RFC del emisor de esa factura; si de verdad es
+  // uno de los emisores del usuario, se preselecciona junto con el tipo
+  // "P" y se salta directo al paso de pago (ver autoUuid en PasoPagos).
+  const emisorOrigenValido = origenRfc && emisores.some((e) => e.Rfc === origenRfc);
+
   const [borrador, setBorrador] = useState<FacturaBorrador>(() => ({
     ...BORRADOR_INICIAL,
-    rfcEmisor: emisores[0]?.Rfc ?? "",
+    rfcEmisor: emisorOrigenValido ? origenRfc! : (emisores[0]?.Rfc ?? ""),
+    tipo: emisorOrigenValido && origenUuid ? "P" : BORRADOR_INICIAL.tipo,
   }));
-  const [pasoActual, setPasoActual] = useState<PasoId>("tipo");
+  const [pasoActual, setPasoActual] = useState<PasoId>(
+    emisorOrigenValido && origenUuid ? "pagos" : "tipo"
+  );
   /** Pasos donde el usuario ya intentó avanzar: solo ahí se pintan los errores. */
   const [intentados, setIntentados] = useState<PasoId[]>([]);
 
@@ -175,8 +191,11 @@ export function NuevaFacturaWizard({
   const receptorActual = useMemo(() => receptorDe(borrador, ctx), [borrador, ctx]);
   const totales = useMemo(() => calcularTotales(borrador.conceptos), [borrador.conceptos]);
 
-  const indiceActual = PASOS.findIndex((p) => p.id === pasoActual);
-  const problemasPendientes = PASOS.flatMap((p) => problemas[p.id]);
+  // Un CFDI de Pago no tiene receptor propio ni conceptos que capturar: el
+  // paso "Pago" los reemplaza a ambos (ver pasosPara).
+  const pasos = pasosPara(borrador.tipo);
+  const indiceActual = pasos.findIndex((p) => p.id === pasoActual);
+  const problemasPendientes = pasos.flatMap((p) => problemas[p.id]);
   const todoValido = problemasPendientes.length === 0;
 
   // Si el saldo no se pudo leer (`null`) no se bloquea nada: se prefiere dejar
@@ -192,7 +211,7 @@ export function NuevaFacturaWizard({
    * usuario ya pasó por él: no tiene sentido regañarlo por datos que todavía
    * no le hemos pedido.
    */
-  const pasosStepper = PASOS.map((p, i) => {
+  const pasosStepper = pasos.map((p, i) => {
     const suyos = problemas[p.id];
     const visitado = intentados.includes(p.id) || i < indiceActual;
     let estado: PasoEstado = "pendiente";
@@ -220,7 +239,7 @@ export function NuevaFacturaWizard({
       toast("Faltan datos en este paso", "danger");
       return;
     }
-    const proximo = PASOS[indiceActual + 1];
+    const proximo = pasos[indiceActual + 1];
     if (proximo) {
       setPasoActual(proximo.id);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -228,7 +247,7 @@ export function NuevaFacturaWizard({
   }
 
   function atras() {
-    const previo = PASOS[indiceActual - 1];
+    const previo = pasos[indiceActual - 1];
     if (previo) {
       setPasoActual(previo.id);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -237,7 +256,7 @@ export function NuevaFacturaWizard({
 
   async function timbrar() {
     setErrorEnvio(null);
-    setIntentados(PASOS.map((p) => p.id));
+    setIntentados(pasos.map((p) => p.id));
 
     if (!todoValido) {
       toast("Todavía faltan datos", "danger");
@@ -246,6 +265,15 @@ export function NuevaFacturaWizard({
 
     const emisor = emisores.find((e) => e.Rfc === borrador.rfcEmisor);
     if (!emisor || !receptorActual) return;
+
+    // El <input type="datetime-local"> entrega "YYYY-MM-DDTHH:mm" (sin
+    // segundos); el SAT espera "YYYY-MM-DDTHH:mm:ss".
+    const fechaPagoConSegundos =
+      borrador.pago.fechaPago.length === 16
+        ? `${borrador.pago.fechaPago}:00`
+        : borrador.pago.fechaPago;
+
+    const docto = borrador.tipo === "P" ? construirDoctoRelacionado(borrador.pago) : null;
 
     setEnviando(true);
     // Bloqueante: timbrar consume un folio y un timbre ante el SAT. Un segundo
@@ -278,6 +306,17 @@ export function NuevaFacturaWizard({
           receptorDomicilioFiscal: receptorActual.DomicilioFiscal,
           receptorUsoCfdi: borrador.usoCfdi,
           conceptos: borrador.conceptos,
+          pago:
+            borrador.tipo === "P" && docto
+              ? {
+                  fechaPago: fechaPagoConSegundos,
+                  formaDePagoP: borrador.pago.formaDePagoP,
+                  monedaP: borrador.pago.monedaP,
+                  tipoCambioP: borrador.pago.tipoCambioP || "1",
+                  monto: (parseFloat(borrador.pago.monto) || 0).toFixed(2),
+                  doctoRelacionado: [docto],
+                }
+              : undefined,
         }),
       });
       const body = await res.json();
@@ -377,12 +416,14 @@ export function NuevaFacturaWizard({
 
           {pasoActual === "conceptos" && <PasoConceptos {...comun} />}
 
+          {pasoActual === "pagos" && <PasoPagos {...comun} autoUuid={origenUuid} />}
+
           {pasoActual === "revision" && (
             <PasoRevision
               borrador={borrador}
               emisores={emisores}
               receptorActual={receptorActual}
-              problemasTotales={PASOS.map((p) => ({
+              problemasTotales={pasos.map((p) => ({
                 paso: p.id,
                 titulo: p.titulo,
                 problemas: problemas[p.id],
@@ -470,12 +511,30 @@ export function NuevaFacturaWizard({
                     : (receptorActual?.Nombre ?? "—")
                 }
               />
-              <Linea etiqueta="Conceptos" valor={String(borrador.conceptos.length)} />
+              {borrador.tipo === "P" ? (
+                <Linea
+                  etiqueta="Factura a pagar"
+                  valor={
+                    borrador.pago.facturaOrigen
+                      ? borrador.pago.facturaOrigen.serie
+                        ? `${borrador.pago.facturaOrigen.serie}-${borrador.pago.facturaOrigen.folio}`
+                        : borrador.pago.facturaOrigen.folio
+                      : "—"
+                  }
+                  mono
+                />
+              ) : (
+                <Linea etiqueta="Conceptos" valor={String(borrador.conceptos.length)} />
+              )}
 
               <div className="flex items-baseline justify-between gap-3 border-t border-line pt-3">
-                <span className="text-[12.5px] font-semibold text-ink">Total</span>
+                <span className="text-[12.5px] font-semibold text-ink">
+                  {borrador.tipo === "P" ? "Monto pagado" : "Total"}
+                </span>
                 <span className="font-mono text-lg font-bold tracking-tight text-ink">
-                  {money(totales.total)}
+                  {borrador.tipo === "P"
+                    ? money(borrador.pago.monto || "0", borrador.pago.monedaP)
+                    : money(totales.total)}
                 </span>
               </div>
 
@@ -487,7 +546,7 @@ export function NuevaFacturaWizard({
                   <p className="text-[12.5px] text-ok">Todos los datos están completos.</p>
                 ) : (
                   <ul className="space-y-1.5">
-                    {PASOS.filter((p) => problemas[p.id].length > 0).map((p) => (
+                    {pasos.filter((p) => problemas[p.id].length > 0).map((p) => (
                       <li key={p.id}>
                         <button
                           type="button"

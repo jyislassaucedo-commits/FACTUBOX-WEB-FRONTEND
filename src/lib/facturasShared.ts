@@ -47,6 +47,46 @@ export type FacturasFiltros = {
   hasta: string;
 };
 
+export type ImpuestoOrigen = {
+  impuesto: string;
+  tipoFactor: string;
+  tasaOCuota: string;
+  base: string;
+  importe: string;
+};
+
+export type PagoPrevio = {
+  UuidPago: string;
+  SerieFolio: string;
+  FechaPago: string;
+  MonedaP: string;
+  NumParcialidad: string;
+  ImpSaldoAnt: string;
+  ImpPagado: string;
+  ImpSaldoInsoluto: string;
+};
+
+/** Salida de getPagosRelacionadosV2.php: ver getPagosRelacionados() en facturas.ts. */
+export type PagosRelacionados = {
+  Origen: {
+    Uuid: string;
+    Serie: string;
+    Folio: string;
+    Total: string;
+    Moneda: string;
+    RfcReceptor: string;
+    NombreReceptor: string;
+    RegimenFiscalReceptor: string;
+    DomicilioFiscalReceptor: string;
+    MetodoPago: string;
+    Traslados: ImpuestoOrigen[];
+    Retenciones: ImpuestoOrigen[];
+  };
+  SaldoPendiente: string;
+  SiguienteParcialidad: string;
+  PagosPrevios: PagoPrevio[];
+};
+
 /** Catálogo c_MotivoCancelacion del SAT. */
 export const MOTIVOS_CANCELACION = [
   {

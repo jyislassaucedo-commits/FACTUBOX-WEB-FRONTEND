@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Button,
   Card,
@@ -13,6 +14,7 @@ import {
   Table,
   Td,
   Th,
+  buttonClass,
   cx,
 } from "@/components/ui";
 import { base64AXml, fechaHora, money, parseCfdi, type Cfdi, type CfdiNomina } from "@/lib/cfdi";
@@ -89,6 +91,10 @@ export function FacturaDetalle({
   const estatus = estatusSat?.ok ? (estatusSat.estado ?? factura.EstatusSat) : factura.EstatusSat;
   const cancelada = estatus === "Cancelado";
   const tipo = tipoSerie(factura.TipoComprobante);
+  // Solo una factura de Ingreso, PPD y vigente se puede saldar con un
+  // complemento de pago.
+  const puedePagar =
+    factura.TipoComprobante === "I" && factura.MetodoPago === "PPD" && !cancelada;
 
   async function validar() {
     setValidando(true);
@@ -153,8 +159,16 @@ export function FacturaDetalle({
           <Button variant="secondary" onClick={descargarXml} disabled={!base64}>
             Descargar XML
           </Button>
+          {puedePagar && (
+            <Link
+              href={`/facturas/nueva?origenRfc=${encodeURIComponent(factura.Rfc)}&origenUuid=${encodeURIComponent(factura.Uuid)}`}
+              className={buttonClass("primary", "md")}
+            >
+              Pagar factura
+            </Link>
+          )}
           {!cancelada && (
-            <Button variant="primary" onClick={onCancelar}>
+            <Button variant={puedePagar ? "secondary" : "primary"} onClick={onCancelar}>
               Cancelar factura
             </Button>
           )}

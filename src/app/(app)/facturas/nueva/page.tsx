@@ -10,9 +10,17 @@ import { getTimbres } from "@/lib/timbres";
  * asistente y no dependen de nada que el usuario elija. Series, receptores y
  * folio sí dependen de la selección, así que esos los pide el cliente.
  */
-export default async function NuevaFacturaPage() {
-  // getTimbres va memoizado con cache(): el layout ya lo pidió en este render.
-  const [todos, timbres] = await Promise.all([getEmisores(), getTimbres()]);
+export default async function NuevaFacturaPage({
+  searchParams,
+}: {
+  /** origenRfc/origenUuid: vienen de "Pagar factura" en el detalle. */
+  searchParams: Promise<{ origenRfc?: string; origenUuid?: string }>;
+}) {
+  const [{ origenRfc, origenUuid }, todos, timbres] = await Promise.all([
+    searchParams,
+    getEmisores(),
+    getTimbres(),
+  ]);
 
   // Aquí —y SOLO aquí— se ocultan los emisores desactivados. El listado de
   // /emisores y los filtros de /facturas los siguen mostrando: desactivar
@@ -57,7 +65,12 @@ export default async function NuevaFacturaPage() {
           </CardBody>
         </Card>
       ) : (
-        <NuevaFacturaWizard emisores={emisores} timbres={timbres} />
+        <NuevaFacturaWizard
+          emisores={emisores}
+          timbres={timbres}
+          origenRfc={origenRfc}
+          origenUuid={origenUuid}
+        />
       )}
     </div>
   );

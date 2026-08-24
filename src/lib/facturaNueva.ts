@@ -10,10 +10,16 @@
    y alimentar el indicador "en vivo" de cada paso.
 --------------------------------------------------------------------------- */
 
-import type { ConceptoInput, TipoComprobante } from "@/lib/timbrado";
+import type {
+  ConceptoInput,
+  DoctoRelacionadoInput,
+  ImpuestoPagoInput,
+  TipoComprobante,
+} from "@/lib/timbrado";
 import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
 import type { Serie } from "@/lib/series";
+import type { ImpuestoOrigen, PagoPrevio } from "@/lib/facturasShared";
 import { IMPUESTO_IVA, RECEPTOR_PUBLICO_GENERAL } from "@/lib/catalogosSat";
 
 export const RFC_PUBLICO_GENERAL = RECEPTOR_PUBLICO_GENERAL.Rfc;
@@ -54,9 +60,8 @@ export const TIPOS_COMPROBANTE: OpcionTipo[] = [
     label: "Pago",
     resumen: "Complemento de pago",
     detalle:
-      "Para facturas PPD, cuando el cliente abona. Necesita el complemento de recepción de pagos.",
-    disponible: false,
-    motivo: "Necesita el complemento Pagos 2.0, que aún no está en esta pantalla.",
+      "Para facturas PPD, cuando el cliente abona. Trae el complemento de recepción de pagos.",
+    disponible: true,
   },
   {
     value: "N",
@@ -101,6 +106,61 @@ export type FacturaBorrador = {
   receptorRfc: string;
   usoCfdi: string;
   conceptos: ConceptoInput[];
+  /** Solo para tipo "P". */
+  pago: PagoBorrador;
+};
+
+/** La factura PPD que se va a pagar, con lo que su complemento necesita
+ * tomar prestado de ella (receptor e impuestos, para prorratear en pagos
+ * parciales). */
+export type FacturaOrigenPago = {
+  uuid: string;
+  serie: string;
+  folio: string;
+  total: string;
+  moneda: string;
+  rfcReceptor: string;
+  nombreReceptor: string;
+  regimenFiscalReceptor: string;
+  domicilioFiscalReceptor: string;
+  traslados: ImpuestoOrigen[];
+  retenciones: ImpuestoOrigen[];
+};
+
+/** Lo que devolvió el backend al buscar pagos ya timbrados de esta factura. */
+export type PagoDetectado = {
+  saldoPendiente: string;
+  siguienteParcialidad: string;
+  pagosPrevios: PagoPrevio[];
+};
+
+export type PagoBorrador = {
+  facturaOrigen: FacturaOrigenPago | null;
+  /** "YYYY-MM-DDTHH:mm", como lo entrega un <input type="datetime-local">. */
+  fechaPago: string;
+  formaDePagoP: string;
+  monedaP: string;
+  tipoCambioP: string;
+  monto: string;
+  /** Saldo antes de este pago: se autocompleta con lo detectado, pero es editable. */
+  impSaldoAnt: string;
+  numParcialidad: string;
+  detectado: PagoDetectado | null;
+  /** Si el usuario quitó el pago detectado (prefiere capturar el saldo a mano). */
+  usarDetectado: boolean;
+};
+
+export const PAGO_VACIO: PagoBorrador = {
+  facturaOrigen: null,
+  fechaPago: "",
+  formaDePagoP: "03",
+  monedaP: "MXN",
+  tipoCambioP: "1",
+  monto: "",
+  impSaldoAnt: "",
+  numParcialidad: "1",
+  detectado: null,
+  usarDetectado: true,
 };
 
 export const CONCEPTO_VACIO: ConceptoInput = {
@@ -125,6 +185,7 @@ export const BORRADOR_INICIAL: FacturaBorrador = {
   receptorRfc: RFC_PUBLICO_GENERAL,
   usoCfdi: RECEPTOR_PUBLICO_GENERAL.UsoCFDI,
   conceptos: [{ ...CONCEPTO_VACIO }],
+  pago: { ...PAGO_VACIO },
 };
 
 export const RECEPTOR_GENERICO: Receptor = {
@@ -139,7 +200,7 @@ export const RECEPTOR_GENERICO: Receptor = {
 /* Pasos                                                                      */
 /* -------------------------------------------------------------------------- */
 
-export type PasoId = "tipo" | "emisor" | "receptor" | "conceptos" | "revision";
+export type PasoId = "tipo" | "emisor" | "receptor" | "conceptos" | "pagos" | "revision";
 
 export const PASOS: Array<{ id: PasoId; titulo: string; descripcion: string }> = [
   { id: "tipo", titulo: "Tipo", descripcion: "Qué comprobante vas a emitir" },
@@ -148,6 +209,21 @@ export const PASOS: Array<{ id: PasoId; titulo: string; descripcion: string }> =
   { id: "conceptos", titulo: "Conceptos", descripcion: "Qué estás cobrando" },
   { id: "revision", titulo: "Revisión", descripcion: "Confirma antes de timbrar" },
 ];
+
+/** Un CFDI de Pago no tiene receptor propio que capturar (viene de la
+ * factura que se paga) ni conceptos reales - "Pagos" los reemplaza a ambos. */
+const PASOS_PAGO: Array<{ id: PasoId; titulo: string; descripcion: string }> = [
+  { id: "tipo", titulo: "Tipo", descripcion: "Qué comprobante vas a emitir" },
+  { id: "emisor", titulo: "Emisor", descripcion: "Quién factura, serie y folio" },
+  { id: "pagos", titulo: "Pago", descripcion: "Qué factura se paga y cuánto" },
+  { id: "revision", titulo: "Revisión", descripcion: "Confirma antes de timbrar" },
+];
+
+export function pasosPara(
+  tipo: TipoComprobante
+): Array<{ id: PasoId; titulo: string; descripcion: string }> {
+  return tipo === "P" ? PASOS_PAGO : PASOS;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Validación                                                                 */
@@ -204,10 +280,13 @@ export function validar(
   if (!borrador.folio) {
     emisorP.push({ campo: "folio", mensaje: "No se pudo calcular el folio. Vuelve a elegir la serie." });
   }
-  if (!borrador.formaPago) {
+  // Un CFDI de Pago no lleva FormaPago/MetodoPago a nivel comprobante (el
+  // SAT los rechaza ahí): la forma de pago real va dentro de cada Pago del
+  // complemento, capturada en el paso "Pago".
+  if (borrador.tipo !== "P" && !borrador.formaPago) {
     emisorP.push({ campo: "formaPago", mensaje: "Elige la forma de pago." });
   }
-  if (!borrador.metodoPago) {
+  if (borrador.tipo !== "P" && !borrador.metodoPago) {
     emisorP.push({ campo: "metodoPago", mensaje: "Elige el método de pago." });
   }
   if (borrador.tipo === "E") {
@@ -229,70 +308,116 @@ export function validar(
     }
   }
 
+  // El receptor de un CFDI de Pago no se elige: es el mismo de la factura
+  // que se está pagando (ver receptorDe). Este paso ni siquiera se muestra
+  // para tipo "P" (ver pasosPara), así que no tiene nada que validar.
   const receptorP: Problema[] = [];
-  if (!borrador.receptorRfc) {
-    receptorP.push({ campo: "receptorRfc", mensaje: "Elige a quién le facturas." });
-  } else if (!receptor) {
-    receptorP.push({ campo: "receptorRfc", mensaje: "Ese receptor ya no está en tu lista." });
-  } else if (borrador.receptorRfc !== RFC_PUBLICO_GENERAL) {
-    if (!receptor.RegimenFiscal) {
-      receptorP.push({
-        campo: "receptorRfc",
-        mensaje: "A este receptor le falta el régimen fiscal. Edítalo antes de facturarle.",
-      });
+  if (borrador.tipo !== "P") {
+    if (!borrador.receptorRfc) {
+      receptorP.push({ campo: "receptorRfc", mensaje: "Elige a quién le facturas." });
+    } else if (!receptor) {
+      receptorP.push({ campo: "receptorRfc", mensaje: "Ese receptor ya no está en tu lista." });
+    } else if (borrador.receptorRfc !== RFC_PUBLICO_GENERAL) {
+      if (!receptor.RegimenFiscal) {
+        receptorP.push({
+          campo: "receptorRfc",
+          mensaje: "A este receptor le falta el régimen fiscal. Edítalo antes de facturarle.",
+        });
+      }
+      if (!receptor.DomicilioFiscal) {
+        receptorP.push({
+          campo: "receptorRfc",
+          mensaje: "A este receptor le falta el código postal de su domicilio fiscal.",
+        });
+      }
     }
-    if (!receptor.DomicilioFiscal) {
-      receptorP.push({
-        campo: "receptorRfc",
-        mensaje: "A este receptor le falta el código postal de su domicilio fiscal.",
-      });
+    if (!borrador.usoCfdi) {
+      receptorP.push({ campo: "usoCfdi", mensaje: "Elige el uso que le dará el receptor." });
     }
-  }
-  if (!borrador.usoCfdi) {
-    receptorP.push({ campo: "usoCfdi", mensaje: "Elige el uso que le dará el receptor." });
   }
 
   const conceptosP: Problema[] = [];
-  if (borrador.conceptos.length === 0) {
-    conceptosP.push({ campo: "conceptos", mensaje: "Agrega al menos un concepto." });
-  }
-  borrador.conceptos.forEach((c, i) => {
-    if (!c.descripcion.trim()) {
-      conceptosP.push({ campo: `concepto.${i}.descripcion`, mensaje: "Falta la descripción." });
+  if (borrador.tipo !== "P") {
+    if (borrador.conceptos.length === 0) {
+      conceptosP.push({ campo: "conceptos", mensaje: "Agrega al menos un concepto." });
     }
-    if (!CLAVE_PROD_SERV.test(c.claveProdServ.trim())) {
-      conceptosP.push({
-        campo: `concepto.${i}.claveProdServ`,
-        mensaje: "La clave del SAT son 8 dígitos.",
-      });
-    }
-    if (!(c.cantidad > 0)) {
-      conceptosP.push({ campo: `concepto.${i}.cantidad`, mensaje: "La cantidad debe ser mayor a 0." });
-    }
-    if (!(c.valorUnitario > 0)) {
-      conceptosP.push({
-        campo: `concepto.${i}.valorUnitario`,
-        mensaje: "El precio unitario debe ser mayor a 0.",
-      });
-    }
-    if (!c.claveUnidad.trim()) {
-      conceptosP.push({ campo: `concepto.${i}.claveUnidad`, mensaje: "Falta la unidad." });
-    }
-    const vistos = new Set<string>();
-    for (const imp of c.impuestos) {
-      const key = `${imp.tipo}-${imp.naturaleza}-${imp.tasa}`;
-      if (vistos.has(key)) {
-        conceptosP.push({
-          campo: `concepto.${i}.impuestos`,
-          mensaje: "Hay un impuesto repetido con la misma tasa en este concepto.",
-        });
-        break;
+    borrador.conceptos.forEach((c, i) => {
+      if (!c.descripcion.trim()) {
+        conceptosP.push({ campo: `concepto.${i}.descripcion`, mensaje: "Falta la descripción." });
       }
-      vistos.add(key);
+      if (!CLAVE_PROD_SERV.test(c.claveProdServ.trim())) {
+        conceptosP.push({
+          campo: `concepto.${i}.claveProdServ`,
+          mensaje: "La clave del SAT son 8 dígitos.",
+        });
+      }
+      if (!(c.cantidad > 0)) {
+        conceptosP.push({ campo: `concepto.${i}.cantidad`, mensaje: "La cantidad debe ser mayor a 0." });
+      }
+      if (!(c.valorUnitario > 0)) {
+        conceptosP.push({
+          campo: `concepto.${i}.valorUnitario`,
+          mensaje: "El precio unitario debe ser mayor a 0.",
+        });
+      }
+      if (!c.claveUnidad.trim()) {
+        conceptosP.push({ campo: `concepto.${i}.claveUnidad`, mensaje: "Falta la unidad." });
+      }
+      const vistos = new Set<string>();
+      for (const imp of c.impuestos) {
+        const key = `${imp.tipo}-${imp.naturaleza}-${imp.tasa}`;
+        if (vistos.has(key)) {
+          conceptosP.push({
+            campo: `concepto.${i}.impuestos`,
+            mensaje: "Hay un impuesto repetido con la misma tasa en este concepto.",
+          });
+          break;
+        }
+        vistos.add(key);
+      }
+    });
+    if (conceptosP.length === 0 && calcularTotales(borrador.conceptos).total <= 0) {
+      conceptosP.push({ campo: "conceptos", mensaje: "El total del comprobante no puede ser 0." });
     }
-  });
-  if (conceptosP.length === 0 && calcularTotales(borrador.conceptos).total <= 0) {
-    conceptosP.push({ campo: "conceptos", mensaje: "El total del comprobante no puede ser 0." });
+  }
+
+  const pagosP: Problema[] = [];
+  if (borrador.tipo === "P") {
+    const p = borrador.pago;
+    if (!p.facturaOrigen) {
+      pagosP.push({ campo: "facturaOrigen", mensaje: "Elige qué factura se va a pagar." });
+    }
+    if (!p.fechaPago) {
+      pagosP.push({ campo: "fechaPago", mensaje: "Captura la fecha en que se recibió el pago." });
+    }
+    if (!p.formaDePagoP) {
+      pagosP.push({ campo: "formaDePagoP", mensaje: "Elige la forma en que se recibió el pago." });
+    }
+    if (!p.monedaP) {
+      pagosP.push({ campo: "monedaP", mensaje: "Elige la moneda del pago." });
+    } else if (p.monedaP !== "MXN" && !(parseFloat(p.tipoCambioP) > 0)) {
+      pagosP.push({ campo: "tipoCambioP", mensaje: "Captura el tipo de cambio de esa moneda." });
+    }
+
+    const monto = parseFloat(p.monto);
+    if (!(monto > 0)) {
+      pagosP.push({ campo: "monto", mensaje: "El monto pagado debe ser mayor a 0." });
+    }
+
+    if (p.facturaOrigen) {
+      const saldoAnt = parseFloat(p.impSaldoAnt);
+      if (!(saldoAnt > 0)) {
+        pagosP.push({
+          campo: "impSaldoAnt",
+          mensaje: "No se pudo calcular el saldo pendiente de esa factura.",
+        });
+      } else if (monto > 0 && monto > saldoAnt + 0.01) {
+        pagosP.push({
+          campo: "monto",
+          mensaje: `El monto no puede ser mayor al saldo pendiente (${saldoAnt.toFixed(2)}).`,
+        });
+      }
+    }
   }
 
   return {
@@ -300,6 +425,7 @@ export function validar(
     emisor: emisorP,
     receptor: receptorP,
     conceptos: conceptosP,
+    pagos: pagosP,
     // La revisión no valida nada propio: hereda lo de los pasos anteriores.
     revision: [],
   };
@@ -309,6 +435,17 @@ export function receptorDe(
   borrador: FacturaBorrador,
   ctx: Contexto
 ): Receptor | null {
+  if (borrador.tipo === "P") {
+    const fo = borrador.pago.facturaOrigen;
+    if (!fo) return null;
+    return {
+      Rfc: fo.rfcReceptor,
+      Nombre: fo.nombreReceptor,
+      RegimenFiscal: fo.regimenFiscalReceptor,
+      DomicilioFiscal: fo.domicilioFiscalReceptor,
+      UsoCfdi: "CP01",
+    };
+  }
   if (borrador.receptorRfc === RFC_PUBLICO_GENERAL) return RECEPTOR_GENERICO;
   return ctx.receptores.find((r) => r.Rfc === borrador.receptorRfc) ?? null;
 }
@@ -347,5 +484,66 @@ export function calcularTotales(conceptos: ConceptoInput[]) {
     trasladados,
     retenidos,
     total: subtotal + trasladados - retenidos,
+  };
+}
+
+function round2(n: number) {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Arma el DoctoRelacionado que va dentro del Pago, prorrateando los
+ * impuestos de la factura origen según el monto pagado.
+ *
+ * La fórmula (factor = monto pagado / total de la factura original,
+ * aplicado a la Base de cada impuesto original) se verificó contra pagos
+ * reales ya timbrados en el sistema: reproduce exactamente la Base y el
+ * Importe que el SAT ya aceptó en pagos parciales anteriores.
+ */
+export function construirDoctoRelacionado(pago: PagoBorrador): DoctoRelacionadoInput | null {
+  const fo = pago.facturaOrigen;
+  if (!fo) return null;
+
+  const monto = parseFloat(pago.monto) || 0;
+  const totalOriginal = parseFloat(fo.total) || 0;
+  const saldoAnt = parseFloat(pago.impSaldoAnt) || 0;
+  const saldoInsoluto = Math.max(round2(saldoAnt - monto), 0);
+  const factor = totalOriginal > 0 ? monto / totalOriginal : 0;
+
+  function prorratear(items: ImpuestoOrigen[]): ImpuestoPagoInput[] {
+    return items.map((imp) => {
+      const base = parseFloat(imp.base) * factor;
+      const importe = round2(base * parseFloat(imp.tasaOCuota));
+      return {
+        base: base.toFixed(6),
+        impuesto: imp.impuesto,
+        tipoFactor: imp.tipoFactor,
+        tasaOCuota: imp.tasaOCuota,
+        importe: importe.toFixed(2),
+      };
+    });
+  }
+
+  const trasladosDR = prorratear(fo.traslados);
+  const retencionesDR = prorratear(fo.retenciones);
+
+  return {
+    idDocumento: fo.uuid,
+    serie: fo.serie,
+    folio: fo.folio,
+    monedaDR: fo.moneda,
+    // Solo hay tipo de cambio real entre MonedaDR y MonedaP cuando
+    // difieren; si el pago se capturó en otra moneda que la de la factura
+    // origen, se asume que tipoCambioP (contra MXN) también aplica aquí -
+    // cubre el caso común (factura en MXN, pago en USD/EUR) sin pedir un
+    // tercer tipo de cambio en el formulario.
+    equivalenciaDR: fo.moneda === pago.monedaP ? "1" : pago.tipoCambioP || "1",
+    numParcialidad: pago.numParcialidad || "1",
+    impSaldoAnt: saldoAnt.toFixed(2),
+    impPagado: monto.toFixed(2),
+    impSaldoInsoluto: saldoInsoluto.toFixed(2),
+    objetoImpDR: trasladosDR.length > 0 || retencionesDR.length > 0 ? "02" : "01",
+    trasladosDR,
+    retencionesDR,
   };
 }

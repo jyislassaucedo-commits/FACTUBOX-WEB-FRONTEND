@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Button,
@@ -20,11 +21,13 @@ import {
 import {
   FORMAS_PAGO,
   METODOS_PAGO,
+  MONEDAS,
   REGIMENES_FISCALES,
   USOS_CFDI,
 } from "@/lib/catalogosSat";
 import { fechaHora, money } from "@/lib/cfdi";
 import { ConceptoEditor } from "./ConceptoEditor";
+import { ElegirFacturaOrigenModal } from "./ElegirFacturaOrigenModal";
 import {
   CONCEPTO_VACIO,
   RFC_PUBLICO_GENERAL,
@@ -33,6 +36,7 @@ import {
   calcularTotales,
   etiquetaTipo,
   type FacturaBorrador,
+  type PagoBorrador,
   type Problema,
 } from "@/lib/facturaNueva";
 import type { Emisor } from "@/lib/emisores";
@@ -244,44 +248,51 @@ export function PasoEmisor({
             <FieldError mensaje={err("folio")} />
           </Field>
 
-          <Field label="Forma de pago">
-            <Select
-              value={borrador.formaPago}
-              onChange={(e) => set({ formaPago: e.target.value })}
-              aria-invalid={Boolean(err("formaPago"))}
-            >
-              {FORMAS_PAGO.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-            </Select>
-            <FieldError mensaje={err("formaPago")} />
-          </Field>
+          {/* Un CFDI de Pago no lleva forma/método de pago ni condiciones a
+              nivel comprobante: la forma real va dentro de cada Pago del
+              complemento, capturada en el siguiente paso. */}
+          {borrador.tipo !== "P" && (
+            <>
+              <Field label="Forma de pago">
+                <Select
+                  value={borrador.formaPago}
+                  onChange={(e) => set({ formaPago: e.target.value })}
+                  aria-invalid={Boolean(err("formaPago"))}
+                >
+                  {FORMAS_PAGO.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
+                </Select>
+                <FieldError mensaje={err("formaPago")} />
+              </Field>
 
-          <Field label="Método de pago">
-            <Select
-              value={borrador.metodoPago}
-              onChange={(e) => set({ metodoPago: e.target.value })}
-              aria-invalid={Boolean(err("metodoPago"))}
-            >
-              {METODOS_PAGO.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </Select>
-            <FieldError mensaje={err("metodoPago")} />
-          </Field>
+              <Field label="Método de pago">
+                <Select
+                  value={borrador.metodoPago}
+                  onChange={(e) => set({ metodoPago: e.target.value })}
+                  aria-invalid={Boolean(err("metodoPago"))}
+                >
+                  {METODOS_PAGO.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </Select>
+                <FieldError mensaje={err("metodoPago")} />
+              </Field>
 
-          <Field label="Condiciones de pago (opcional)" className="sm:col-span-2">
-            <input
-              className="focus-brand w-full rounded-[10px] border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-4 focus:border-brand"
-              placeholder="Ej. Contado, 30 días…"
-              value={borrador.condicionesDePago}
-              onChange={(e) => set({ condicionesDePago: e.target.value })}
-            />
-          </Field>
+              <Field label="Condiciones de pago (opcional)" className="sm:col-span-2">
+                <input
+                  className="focus-brand w-full rounded-[10px] border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-4 focus:border-brand"
+                  placeholder="Ej. Contado, 30 días…"
+                  value={borrador.condicionesDePago}
+                  onChange={(e) => set({ condicionesDePago: e.target.value })}
+                />
+              </Field>
+            </>
+          )}
         </CardBody>
       </Card>
 
@@ -575,6 +586,298 @@ export function PasoConceptos({ borrador, set, problemas, mostrarErrores }: Comu
 }
 
 /* ========================================================================== */
+/* 4b. Pagos (reemplaza a Conceptos cuando el tipo es "P")                    */
+/* ========================================================================== */
+
+export function PasoPagos({
+  borrador,
+  set,
+  problemas,
+  mostrarErrores,
+  autoUuid,
+}: Comun & {
+  /** Folio fiscal a precargar una sola vez (viene de "Pagar factura" en el detalle). */
+  autoUuid?: string;
+}) {
+  const [modalAbierto, setModalAbierto] = useState(false);
+  const [cargando, setCargando] = useState(false);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const autoIntentado = useRef(false);
+
+  const pago = borrador.pago;
+  const err = (campo: string) => mensajeDe(problemas, campo, mostrarErrores);
+
+  function setPago(cambios: Partial<PagoBorrador>) {
+    set({ pago: { ...pago, ...cambios } });
+  }
+
+  async function elegirFactura(uuid: string) {
+    setCargando(true);
+    setErrorCarga(null);
+    try {
+      const res = await fetch(
+        `/api/facturas/${encodeURIComponent(uuid)}/pagos-relacionados?rfcEmisor=${encodeURIComponent(borrador.rfcEmisor)}`
+      );
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "No se pudo consultar la factura");
+
+      const origen = {
+        uuid: body.Origen.Uuid as string,
+        serie: body.Origen.Serie as string,
+        folio: body.Origen.Folio as string,
+        total: body.Origen.Total as string,
+        moneda: (body.Origen.Moneda as string) || "MXN",
+        rfcReceptor: body.Origen.RfcReceptor as string,
+        nombreReceptor: body.Origen.NombreReceptor as string,
+        regimenFiscalReceptor: body.Origen.RegimenFiscalReceptor as string,
+        domicilioFiscalReceptor: String(body.Origen.DomicilioFiscalReceptor ?? ""),
+        traslados: body.Origen.Traslados,
+        retenciones: body.Origen.Retenciones,
+      };
+      const detectado = {
+        saldoPendiente: body.SaldoPendiente as string,
+        siguienteParcialidad: body.SiguienteParcialidad as string,
+        pagosPrevios: body.PagosPrevios,
+      };
+
+      setPago({
+        facturaOrigen: origen,
+        monedaP: origen.moneda,
+        impSaldoAnt: detectado.saldoPendiente,
+        numParcialidad: detectado.siguienteParcialidad,
+        monto: "",
+        detectado,
+        usarDetectado: true,
+      });
+    } catch (e) {
+      setErrorCarga(e instanceof Error ? e.message : "Error al consultar la factura");
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  // "Pagar factura" en el detalle manda aquí con el emisor y el UUID ya
+  // resueltos: en cuanto haya rfcEmisor, se precarga una sola vez.
+  useEffect(() => {
+    if (!autoUuid || autoIntentado.current || !borrador.rfcEmisor || pago.facturaOrigen) return;
+    autoIntentado.current = true;
+    elegirFactura(autoUuid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoUuid, borrador.rfcEmisor]);
+
+  function alternarDetectado() {
+    if (!pago.detectado) return;
+    setPago(
+      pago.usarDetectado
+        ? { usarDetectado: false }
+        : {
+            usarDetectado: true,
+            impSaldoAnt: pago.detectado.saldoPendiente,
+            numParcialidad: pago.detectado.siguienteParcialidad,
+          }
+    );
+  }
+
+  const monto = parseFloat(pago.monto) || 0;
+  const saldoAnt = parseFloat(pago.impSaldoAnt) || 0;
+  const saldoInsoluto = Math.max(saldoAnt - monto, 0);
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader
+          title="Qué factura se paga"
+          description="Solo facturas PPD vigentes se pueden saldar con un complemento de pago."
+          action={
+            <Button
+              variant={pago.facturaOrigen ? "secondary" : "primary"}
+              onClick={() => setModalAbierto(true)}
+              disabled={!borrador.rfcEmisor || cargando}
+            >
+              {cargando ? "Consultando…" : pago.facturaOrigen ? "Cambiar factura" : "Elegir factura"}
+            </Button>
+          }
+        />
+        <CardBody className="space-y-3">
+          {!borrador.rfcEmisor && <Note tone="warn">Elige primero el emisor.</Note>}
+          {errorCarga && <Note tone="danger">{errorCarga}</Note>}
+
+          {!pago.facturaOrigen ? (
+            <Note tone={mostrarErrores && err("facturaOrigen") ? "danger" : "warn"}>
+              {err("facturaOrigen") ?? "Todavía no elegiste qué factura se va a pagar."}
+            </Note>
+          ) : (
+            <div className="rounded-xl border border-line bg-surface-2 p-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2">
+                    <span className="font-mono text-[14px] font-semibold text-ink">
+                      {pago.facturaOrigen.serie
+                        ? `${pago.facturaOrigen.serie}-${pago.facturaOrigen.folio}`
+                        : pago.facturaOrigen.folio}
+                    </span>
+                    <Pill tone="info">PPD</Pill>
+                  </p>
+                  <p className="mt-0.5 truncate text-[12.5px] text-ink-3">
+                    {pago.facturaOrigen.nombreReceptor}
+                  </p>
+                  <p className="mt-0.5 break-all font-mono text-[11px] text-ink-4">
+                    {pago.facturaOrigen.uuid}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-mono text-[14px] font-semibold text-ink">
+                    {money(pago.facturaOrigen.total, pago.facturaOrigen.moneda)}
+                  </p>
+                  <p className="text-[11px] text-ink-3">Total de la factura</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {pago.facturaOrigen && pago.detectado && pago.detectado.pagosPrevios.length > 0 && (
+            <Note
+              tone={pago.usarDetectado ? "info" : "warn"}
+              title={pago.usarDetectado ? "Se detectó un pago anterior" : "Ignorando el pago detectado"}
+            >
+              <p>
+                {pago.usarDetectado
+                  ? `Ya se timbraron ${pago.detectado.pagosPrevios.length} pago(s) de esta factura. Saldo pendiente detectado: ${money(pago.detectado.saldoPendiente, pago.facturaOrigen.moneda)} (siguiente parcialidad ${pago.detectado.siguienteParcialidad}). Se aplicó automáticamente abajo.`
+                  : "Estás capturando el saldo pendiente a mano, sin usar lo que el sistema detectó."}
+              </p>
+              <button
+                type="button"
+                onClick={alternarDetectado}
+                className="focus-brand mt-1.5 rounded text-[12px] font-semibold underline"
+              >
+                {pago.usarDetectado ? "Quitarlo y capturar el saldo a mano" : "Usar el saldo detectado"}
+              </button>
+            </Note>
+          )}
+        </CardBody>
+      </Card>
+
+      {pago.facturaOrigen && (
+        <Card>
+          <CardHeader
+            title="Datos del pago"
+            description="Lo que se recibió y con qué se salda la factura."
+          />
+          <CardBody className="grid gap-4 sm:grid-cols-2">
+            <Field label="Fecha en que se recibió el pago">
+              <input
+                type="datetime-local"
+                className="focus-brand w-full rounded-[10px] border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-brand"
+                value={pago.fechaPago}
+                onChange={(e) => setPago({ fechaPago: e.target.value })}
+                aria-invalid={Boolean(err("fechaPago"))}
+              />
+              <FieldError mensaje={err("fechaPago")} />
+            </Field>
+
+            <Field label="Forma en que se pagó">
+              <Select
+                value={pago.formaDePagoP}
+                onChange={(e) => setPago({ formaDePagoP: e.target.value })}
+                aria-invalid={Boolean(err("formaDePagoP"))}
+              >
+                {FORMAS_PAGO.map((f) => (
+                  <option key={f.value} value={f.value}>
+                    {f.label}
+                  </option>
+                ))}
+              </Select>
+              <FieldError mensaje={err("formaDePagoP")} />
+            </Field>
+
+            <Field label="Moneda del pago" hint="Por default, la misma de la factura - la puedes cambiar.">
+              <Select
+                value={pago.monedaP}
+                onChange={(e) => setPago({ monedaP: e.target.value })}
+                aria-invalid={Boolean(err("monedaP"))}
+              >
+                {MONEDAS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </Select>
+              <FieldError mensaje={err("monedaP")} />
+            </Field>
+
+            {pago.monedaP !== "MXN" && (
+              <Field label="Tipo de cambio">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.0001"
+                  className="focus-brand w-full rounded-[10px] border border-line bg-surface px-3 py-2 font-mono text-sm text-ink focus:border-brand"
+                  value={pago.tipoCambioP}
+                  onChange={(e) => setPago({ tipoCambioP: e.target.value })}
+                  aria-invalid={Boolean(err("tipoCambioP"))}
+                />
+                <FieldError mensaje={err("tipoCambioP")} />
+              </Field>
+            )}
+
+            <Field
+              label="Saldo antes de este pago"
+              hint={pago.usarDetectado && pago.detectado ? "Detectado automáticamente." : undefined}
+            >
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="focus-brand w-full rounded-[10px] border border-line bg-surface px-3 py-2 font-mono text-sm text-ink focus:border-brand disabled:opacity-60"
+                value={pago.impSaldoAnt}
+                disabled={pago.usarDetectado && Boolean(pago.detectado)}
+                onChange={(e) => setPago({ impSaldoAnt: e.target.value })}
+                aria-invalid={Boolean(err("impSaldoAnt"))}
+              />
+              <FieldError mensaje={err("impSaldoAnt")} />
+            </Field>
+
+            <Field label="Cuánto pagó ahora">
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="focus-brand w-full rounded-[10px] border border-line bg-surface px-3 py-2 font-mono text-sm text-ink focus:border-brand"
+                value={pago.monto}
+                onChange={(e) => setPago({ monto: e.target.value })}
+                aria-invalid={Boolean(err("monto"))}
+              />
+              <FieldError mensaje={err("monto")} />
+            </Field>
+          </CardBody>
+
+          <CardBody className="border-t border-line-2 pt-4">
+            <div className="ml-auto max-w-xs space-y-1.5">
+              <Renglon etiqueta="Saldo antes de este pago" valor={money(saldoAnt, pago.monedaP)} />
+              <Renglon etiqueta="Monto pagado" valor={money(monto, pago.monedaP)} />
+              <div className="flex items-baseline justify-between gap-4 border-t border-line pt-2">
+                <span className="text-[13px] font-semibold text-ink">Saldo insoluto</span>
+                <span className="font-mono text-lg font-bold tracking-tight text-ink">
+                  {money(saldoInsoluto, pago.monedaP)}
+                </span>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+      )}
+
+      {modalAbierto && (
+        <ElegirFacturaOrigenModal
+          rfcEmisor={borrador.rfcEmisor}
+          onClose={() => setModalAbierto(false)}
+          onElegir={elegirFactura}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ========================================================================== */
 /* 5. Revisión                                                                */
 /* ========================================================================== */
 
@@ -594,6 +897,9 @@ export function PasoRevision({
   const emisor = emisores.find((e) => e.Rfc === borrador.rfcEmisor) ?? null;
   const totales = calcularTotales(borrador.conceptos);
   const conProblemas = problemasTotales.filter((p) => p.problemas.length > 0);
+  const esPago = borrador.tipo === "P";
+  const pago = borrador.pago;
+  const montoPago = parseFloat(pago.monto) || 0;
 
   return (
     <div className="space-y-4">
@@ -637,7 +943,7 @@ export function PasoRevision({
         <CardHeader
           title={`${etiquetaTipo(borrador.tipo)} ${borrador.serie}-${borrador.folio}`}
           description="Así quedará el comprobante."
-          action={<Pill tone="brand">{money(totales.total)}</Pill>}
+          action={<Pill tone="brand">{money(esPago ? montoPago : totales.total, esPago ? pago.monedaP : undefined)}</Pill>}
         />
         <CardBody className="grid gap-5 sm:grid-cols-2">
           <div>
@@ -654,29 +960,66 @@ export function PasoRevision({
             </p>
             <Dato etiqueta="Razón social" valor={receptorActual?.Nombre ?? "—"} />
             <Dato etiqueta="RFC" valor={receptorActual?.Rfc ?? "—"} mono />
-            <Dato
-              etiqueta="Uso del CFDI"
-              valor={USOS_CFDI.find((u) => u.value === borrador.usoCfdi)?.label ?? borrador.usoCfdi}
-            />
+            <Dato etiqueta="Uso del CFDI" valor={esPago ? "CP01 - Pagos" : USOS_CFDI.find((u) => u.value === borrador.usoCfdi)?.label ?? borrador.usoCfdi} />
           </div>
-          <div className="sm:col-span-2">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3">
-              Pago
-            </p>
-            <div className="grid gap-x-6 sm:grid-cols-2">
-              <Dato
-                etiqueta="Forma de pago"
-                valor={FORMAS_PAGO.find((f) => f.value === borrador.formaPago)?.label ?? "—"}
-              />
-              <Dato
-                etiqueta="Método de pago"
-                valor={METODOS_PAGO.find((m) => m.value === borrador.metodoPago)?.label ?? "—"}
-              />
-              {borrador.condicionesDePago && (
-                <Dato etiqueta="Condiciones" valor={borrador.condicionesDePago} />
-              )}
+
+          {esPago ? (
+            <div className="sm:col-span-2">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3">
+                Pago
+              </p>
+              <div className="grid gap-x-6 sm:grid-cols-2">
+                <Dato
+                  etiqueta="Factura que se paga"
+                  valor={
+                    pago.facturaOrigen
+                      ? pago.facturaOrigen.serie
+                        ? `${pago.facturaOrigen.serie}-${pago.facturaOrigen.folio}`
+                        : pago.facturaOrigen.folio
+                      : "—"
+                  }
+                  mono
+                />
+                <Dato etiqueta="Parcialidad" valor={pago.numParcialidad || "—"} />
+                <Dato
+                  etiqueta="Fecha de pago"
+                  valor={pago.fechaPago ? pago.fechaPago.replace("T", " ") : "—"}
+                />
+                <Dato
+                  etiqueta="Forma de pago"
+                  valor={FORMAS_PAGO.find((f) => f.value === pago.formaDePagoP)?.label ?? "—"}
+                />
+                <Dato etiqueta="Saldo antes del pago" valor={money(pago.impSaldoAnt, pago.monedaP)} />
+                <Dato etiqueta="Monto pagado" valor={money(pago.monto, pago.monedaP)} />
+                <Dato
+                  etiqueta="Saldo insoluto"
+                  valor={money(
+                    Math.max((parseFloat(pago.impSaldoAnt) || 0) - montoPago, 0),
+                    pago.monedaP
+                  )}
+                />
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="sm:col-span-2">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3">
+                Pago
+              </p>
+              <div className="grid gap-x-6 sm:grid-cols-2">
+                <Dato
+                  etiqueta="Forma de pago"
+                  valor={FORMAS_PAGO.find((f) => f.value === borrador.formaPago)?.label ?? "—"}
+                />
+                <Dato
+                  etiqueta="Método de pago"
+                  valor={METODOS_PAGO.find((m) => m.value === borrador.metodoPago)?.label ?? "—"}
+                />
+                {borrador.condicionesDePago && (
+                  <Dato etiqueta="Condiciones" valor={borrador.condicionesDePago} />
+                )}
+              </div>
+            </div>
+          )}
 
           {borrador.tipo === "E" && (
             <div className="sm:col-span-2">
@@ -700,51 +1043,55 @@ export function PasoRevision({
           )}
         </CardBody>
 
-        <Table>
-          <thead>
-            <tr>
-              <Th>Concepto</Th>
-              <Th className="text-right">Cant.</Th>
-              <Th className="text-right">P. unitario</Th>
-              <Th className="text-right">Importe</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {borrador.conceptos.map((c, i) => (
-              <tr key={i}>
-                <Td>
-                  <span className="block font-medium text-ink">
-                    {c.descripcion || <span className="text-warn">sin descripción</span>}
-                  </span>
-                  <span className="mt-0.5 block font-mono text-[11px] text-ink-3">
-                    {c.claveProdServ || "sin clave"} · {c.unidad}
-                  </span>
-                </Td>
-                <Td className="text-right font-mono">{c.cantidad}</Td>
-                <Td className="text-right font-mono">{money(c.valorUnitario)}</Td>
-                <Td className="text-right font-mono font-semibold text-ink">
-                  {money(c.cantidad * c.valorUnitario)}
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
+        {!esPago && (
+          <>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Concepto</Th>
+                  <Th className="text-right">Cant.</Th>
+                  <Th className="text-right">P. unitario</Th>
+                  <Th className="text-right">Importe</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {borrador.conceptos.map((c, i) => (
+                  <tr key={i}>
+                    <Td>
+                      <span className="block font-medium text-ink">
+                        {c.descripcion || <span className="text-warn">sin descripción</span>}
+                      </span>
+                      <span className="mt-0.5 block font-mono text-[11px] text-ink-3">
+                        {c.claveProdServ || "sin clave"} · {c.unidad}
+                      </span>
+                    </Td>
+                    <Td className="text-right font-mono">{c.cantidad}</Td>
+                    <Td className="text-right font-mono">{money(c.valorUnitario)}</Td>
+                    <Td className="text-right font-mono font-semibold text-ink">
+                      {money(c.cantidad * c.valorUnitario)}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
 
-        <CardBody className="ml-auto max-w-sm space-y-1.5 border-t border-line-2">
-          <Renglon etiqueta="Subtotal" valor={money(totales.subtotal)} />
-          {totales.trasladados > 0 && (
-            <Renglon etiqueta="Impuestos trasladados" valor={money(totales.trasladados)} />
-          )}
-          {totales.retenidos > 0 && (
-            <Renglon etiqueta="Retenciones" valor={`− ${money(totales.retenidos)}`} />
-          )}
-          <div className="flex items-baseline justify-between gap-4 border-t border-line pt-2">
-            <span className="text-[13px] font-semibold text-ink">Total</span>
-            <span className="font-mono text-xl font-bold tracking-tight text-ink">
-              {money(totales.total)}
-            </span>
-          </div>
-        </CardBody>
+            <CardBody className="ml-auto max-w-sm space-y-1.5 border-t border-line-2">
+              <Renglon etiqueta="Subtotal" valor={money(totales.subtotal)} />
+              {totales.trasladados > 0 && (
+                <Renglon etiqueta="Impuestos trasladados" valor={money(totales.trasladados)} />
+              )}
+              {totales.retenidos > 0 && (
+                <Renglon etiqueta="Retenciones" valor={`− ${money(totales.retenidos)}`} />
+              )}
+              <div className="flex items-baseline justify-between gap-4 border-t border-line pt-2">
+                <span className="text-[13px] font-semibold text-ink">Total</span>
+                <span className="font-mono text-xl font-bold tracking-tight text-ink">
+                  {money(totales.total)}
+                </span>
+              </div>
+            </CardBody>
+          </>
+        )}
       </Card>
     </div>
   );

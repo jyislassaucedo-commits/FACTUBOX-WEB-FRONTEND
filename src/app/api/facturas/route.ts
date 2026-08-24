@@ -5,17 +5,23 @@ import {
   type TipoComprobante,
 } from "@/lib/timbrado";
 
-const TIPOS_SOPORTADOS: TipoComprobante[] = ["I", "E"];
+const TIPOS_SOPORTADOS: TipoComprobante[] = ["I", "E", "P"];
 
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as
     | (NuevaFacturaInput & { emisorToken: string })
     | null;
 
+  // Un CFDI de Pago no manda conceptos reales desde el cliente (el filler
+  // "Pago" $0 lo arma buildDatosJSONPago del lado del servidor); en cambio
+  // sí necesita el bloque `pago` con al menos un documento relacionado.
+  const tipoTentativo = body?.tipoDeComprobante;
+  const requiereConceptos = tipoTentativo !== "P";
+
   if (
     !body?.emisorToken ||
     !body?.rfcEmisor ||
-    !body?.conceptos?.length ||
+    (requiereConceptos && !body?.conceptos?.length) ||
     !body?.receptorRfc ||
     !body?.receptorNombre ||
     !body?.receptorRegimenFiscal ||
@@ -40,6 +46,13 @@ export async function POST(request: NextRequest) {
   if (tipo === "E" && !body.cfdiRelacionados?.uuids?.length) {
     return NextResponse.json(
       { error: "Una nota de crédito debe relacionar al menos un CFDI" },
+      { status: 400 }
+    );
+  }
+
+  if (tipo === "P" && !body.pago?.doctoRelacionado?.length) {
+    return NextResponse.json(
+      { error: "Un complemento de pago debe decir qué factura salda" },
       { status: 400 }
     );
   }

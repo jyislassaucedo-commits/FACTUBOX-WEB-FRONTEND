@@ -31,6 +31,14 @@ export const FORMAS_PAGO = [
   { value: "99", label: "99 - Por definir" },
 ] as const;
 
+// c_Moneda - las que de verdad se usan aquí; el catálogo completo del SAT
+// tiene ~170 monedas.
+export const MONEDAS = [
+  { value: "MXN", label: "MXN - Peso mexicano" },
+  { value: "USD", label: "USD - Dólar americano" },
+  { value: "EUR", label: "EUR - Euro" },
+] as const;
+
 // c_MetodoPago
 export const METODOS_PAGO = [
   { value: "PUE", label: "PUE - Pago en una sola exhibición" },

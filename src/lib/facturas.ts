@@ -5,10 +5,11 @@ import {
   MOTIVOS_CANCELACION,
   type Factura,
   type FacturasFiltros,
+  type PagosRelacionados,
 } from "./facturasShared";
 
 export { MOTIVOS_CANCELACION };
-export type { Factura, FacturasFiltros };
+export type { Factura, FacturasFiltros, PagosRelacionados };
 
 const MODO_TIMBRADO = process.env.MODO_TIMBRADO || "PRUEBAS";
 
@@ -210,35 +211,6 @@ export async function getFacturaPdf(
     }
   );
 }
-
-export type PagoPrevio = {
-  UuidPago: string;
-  SerieFolio: string;
-  FechaPago: string;
-  MonedaP: string;
-  NumParcialidad: string;
-  ImpSaldoAnt: string;
-  ImpPagado: string;
-  ImpSaldoInsoluto: string;
-};
-
-export type PagosRelacionados = {
-  Origen: {
-    Uuid: string;
-    Serie: string;
-    Folio: string;
-    Total: string;
-    Moneda: string;
-    RfcReceptor: string;
-    NombreReceptor: string;
-    RegimenFiscalReceptor: string;
-    DomicilioFiscalReceptor: string;
-    MetodoPago: string;
-  };
-  SaldoPendiente: string;
-  SiguienteParcialidad: string;
-  PagosPrevios: PagoPrevio[];
-};
 
 /**
  * Pagos ya timbrados (no cancelados) que ya saldaron parte de una factura
