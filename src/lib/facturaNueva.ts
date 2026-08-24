@@ -14,7 +14,7 @@ import type { ConceptoInput, TipoComprobante } from "@/lib/timbrado";
 import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
 import type { Serie } from "@/lib/series";
-import { RECEPTOR_PUBLICO_GENERAL } from "@/lib/catalogosSat";
+import { IMPUESTO_IVA, RECEPTOR_PUBLICO_GENERAL } from "@/lib/catalogosSat";
 
 export const RFC_PUBLICO_GENERAL = RECEPTOR_PUBLICO_GENERAL.Rfc;
 
@@ -110,9 +110,7 @@ export const CONCEPTO_VACIO: ConceptoInput = {
   unidad: "Pieza",
   cantidad: 1,
   valorUnitario: 0,
-  ivaTasa: "0.160000",
-  iepsTasa: "",
-  retencionIsrTasa: "",
+  impuestos: [{ id: "iva-traslado-inicial", tipo: IMPUESTO_IVA, naturaleza: "traslado", tasa: "0.160000" }],
 };
 
 export const BORRADOR_INICIAL: FacturaBorrador = {
@@ -280,6 +278,18 @@ export function validar(
     if (!c.claveUnidad.trim()) {
       conceptosP.push({ campo: `concepto.${i}.claveUnidad`, mensaje: "Falta la unidad." });
     }
+    const vistos = new Set<string>();
+    for (const imp of c.impuestos) {
+      const key = `${imp.tipo}-${imp.naturaleza}-${imp.tasa}`;
+      if (vistos.has(key)) {
+        conceptosP.push({
+          campo: `concepto.${i}.impuestos`,
+          mensaje: "Hay un impuesto repetido con la misma tasa en este concepto.",
+        });
+        break;
+      }
+      vistos.add(key);
+    }
   });
   if (conceptosP.length === 0 && calcularTotales(borrador.conceptos).total <= 0) {
     conceptosP.push({ campo: "conceptos", mensaje: "El total del comprobante no puede ser 0." });
@@ -325,9 +335,11 @@ export function calcularTotales(conceptos: ConceptoInput[]) {
   for (const c of conceptos) {
     const importe = (Number(c.cantidad) || 0) * (Number(c.valorUnitario) || 0);
     subtotal += importe;
-    if (c.ivaTasa) trasladados += importe * parseFloat(c.ivaTasa);
-    if (c.iepsTasa) trasladados += importe * parseFloat(c.iepsTasa);
-    if (c.retencionIsrTasa) retenidos += importe * parseFloat(c.retencionIsrTasa);
+    for (const imp of c.impuestos) {
+      const monto = importe * parseFloat(imp.tasa);
+      if (imp.naturaleza === "traslado") trasladados += monto;
+      else retenidos += monto;
+    }
   }
 
   return {

@@ -1,8 +1,22 @@
 import { callLegacyPhpApi, type PhpResponse } from "./phpApi";
 import { getSession } from "./session";
-import { IMPUESTO_IEPS, IMPUESTO_ISR, IMPUESTO_IVA, RECEPTOR_PUBLICO_GENERAL } from "./catalogosSat";
+import { RECEPTOR_PUBLICO_GENERAL } from "./catalogosSat";
 
 const MODO_TIMBRADO = process.env.MODO_TIMBRADO || "PRUEBAS";
+
+/** Un concepto puede llevar varios impuestos: IVA e IEPS trasladados, y por
+ * separado IVA, IEPS o ISR retenidos. La única regla es que no se repita la
+ * misma tasa dentro del mismo impuesto+naturaleza (ver `validar` en
+ * facturaNueva.ts). */
+export type NaturalezaImpuesto = "traslado" | "retencion";
+
+export type ImpuestoConceptoInput = {
+  /** Identificador estable para la fila en la UI; no se manda al SAT. */
+  id: string;
+  tipo: string; // c_Impuesto: IMPUESTO_IVA | IMPUESTO_IEPS | IMPUESTO_ISR
+  naturaleza: NaturalezaImpuesto;
+  tasa: string; // "0.160000", nunca "" (exento = no hay fila para ese impuesto)
+};
 
 export type ConceptoInput = {
   descripcion: string;
@@ -11,9 +25,7 @@ export type ConceptoInput = {
   unidad: string;
   cantidad: number;
   valorUnitario: number;
-  ivaTasa: string; // "0.160000" | "0.080000" | "0.000000" | "" (exento)
-  iepsTasa: string; // "" = sin IEPS
-  retencionIsrTasa: string; // "" = sin retencion
+  impuestos: ImpuestoConceptoInput[];
 };
 
 /** Tipos de comprobante que esta pantalla sabe armar hoy. */
@@ -89,52 +101,22 @@ function buildDatosJSON(input: NuevaFacturaInput) {
     const traslados: Record<string, unknown>[] = [];
     const retenciones: Record<string, unknown>[] = [];
 
-    if (c.ivaTasa !== "") {
-      const importeIva = round2(importe * parseFloat(c.ivaTasa));
-      traslados.push({
+    for (const imp of c.impuestos) {
+      const importeImp = round2(importe * parseFloat(imp.tasa));
+      const nodo = {
         Base: importe.toFixed(2),
-        Impuesto: IMPUESTO_IVA,
+        Impuesto: imp.tipo,
         TipoFactor: "Tasa",
-        TasaOCuota: c.ivaTasa,
-        Importe: importeIva.toFixed(2),
-      });
-      const key = `${IMPUESTO_IVA}-${c.ivaTasa}`;
-      const acc = trasladosPorTasa.get(key) ?? { impuesto: IMPUESTO_IVA, tasa: c.ivaTasa, base: 0, importe: 0 };
+        TasaOCuota: imp.tasa,
+        Importe: importeImp.toFixed(2),
+      };
+      const porTasa = imp.naturaleza === "traslado" ? trasladosPorTasa : retencionesPorTasa;
+      (imp.naturaleza === "traslado" ? traslados : retenciones).push(nodo);
+      const key = `${imp.tipo}-${imp.tasa}`;
+      const acc = porTasa.get(key) ?? { impuesto: imp.tipo, tasa: imp.tasa, base: 0, importe: 0 };
       acc.base += importe;
-      acc.importe += importeIva;
-      trasladosPorTasa.set(key, acc);
-    }
-
-    if (c.iepsTasa !== "") {
-      const importeIeps = round2(importe * parseFloat(c.iepsTasa));
-      traslados.push({
-        Base: importe.toFixed(2),
-        Impuesto: IMPUESTO_IEPS,
-        TipoFactor: "Tasa",
-        TasaOCuota: c.iepsTasa,
-        Importe: importeIeps.toFixed(2),
-      });
-      const key = `${IMPUESTO_IEPS}-${c.iepsTasa}`;
-      const acc = trasladosPorTasa.get(key) ?? { impuesto: IMPUESTO_IEPS, tasa: c.iepsTasa, base: 0, importe: 0 };
-      acc.base += importe;
-      acc.importe += importeIeps;
-      trasladosPorTasa.set(key, acc);
-    }
-
-    if (c.retencionIsrTasa !== "") {
-      const importeRet = round2(importe * parseFloat(c.retencionIsrTasa));
-      retenciones.push({
-        Base: importe.toFixed(2),
-        Impuesto: IMPUESTO_ISR,
-        TipoFactor: "Tasa",
-        TasaOCuota: c.retencionIsrTasa,
-        Importe: importeRet.toFixed(2),
-      });
-      const key = `${IMPUESTO_ISR}-${c.retencionIsrTasa}`;
-      const acc = retencionesPorTasa.get(key) ?? { impuesto: IMPUESTO_ISR, tasa: c.retencionIsrTasa, base: 0, importe: 0 };
-      acc.base += importe;
-      acc.importe += importeRet;
-      retencionesPorTasa.set(key, acc);
+      acc.importe += importeImp;
+      porTasa.set(key, acc);
     }
 
     const objetoImp = traslados.length > 0 || retenciones.length > 0 ? "02" : "01";

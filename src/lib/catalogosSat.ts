@@ -95,3 +95,24 @@ export const TASAS_IVA = [
   { value: "0.000000", label: "0%" },
   { value: "", label: "Exento" },
 ] as const;
+
+// Tasas de IVA retenido más comunes (honorarios/arrendamiento a personas
+// morales 10.6667%, plataformas tecnológicas 6%, autotransporte 4%).
+export const TASAS_RETENCION_IVA = [
+  { value: "0.106667", label: "10.6667%" },
+  { value: "0.060000", label: "6%" },
+  { value: "0.040000", label: "4%" },
+] as const;
+
+export const TASAS_IEPS = [
+  { value: "0.080000", label: "8%" },
+  { value: "0.265000", label: "26.5%" },
+  { value: "0.300000", label: "30%" },
+  { value: "0.530000", label: "53%" },
+] as const;
+
+// ISR en un concepto siempre es retención (honorarios 10%, arrendamiento 1.25%).
+export const TASAS_RETENCION_ISR = [
+  { value: "0.100000", label: "10%" },
+  { value: "0.012500", label: "1.25%" },
+] as const;
