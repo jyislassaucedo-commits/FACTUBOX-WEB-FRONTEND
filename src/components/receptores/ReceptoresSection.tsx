@@ -22,7 +22,8 @@ import {
 } from "@/components/ui";
 import { ReceptorFormModal } from "./ReceptorFormModal";
 import { iniciales } from "@/lib/emisorNav";
-import { USOS_CFDI } from "@/lib/catalogosSat";
+import type { ResultadoUsoCfdi } from "@/lib/catalogoSatBusquedaShared";
+import { useCatalogoSat } from "@/lib/useCatalogoSat";
 import type { Receptor } from "@/lib/receptores";
 
 /** Paleta fija para los avatares: se elige por hash del RFC, no por indice,
@@ -50,6 +51,7 @@ export function ReceptoresSection({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const usosCfdi = useCatalogoSat<ResultadoUsoCfdi>("usoCfdi");
 
   const [q, setQ] = useState("");
   const [uso, setUso] = useState<string>("all");
@@ -163,7 +165,7 @@ export function ReceptoresSection({
             </thead>
             <tbody>
               {filtrados.map((r) => {
-                const usoLabel = USOS_CFDI.find((u) => u.value === r.UsoCfdi)?.label;
+                const usoLabel = usosCfdi.find((u) => u.id === r.UsoCfdi)?.texto;
                 return (
                   <tr key={r.Rfc || r.Nombre} className="group transition hover:bg-surface-2">
                     <Td>

@@ -19,12 +19,9 @@ import {
 } from "@/components/ui";
 import { base64AXml, fechaHora, money, parseCfdi, type Cfdi, type CfdiNomina } from "@/lib/cfdi";
 import { tipoSerie } from "@/lib/emisorNav";
-import {
-  FORMAS_PAGO,
-  METODOS_PAGO,
-  REGIMENES_FISCALES,
-  USOS_CFDI,
-} from "@/lib/catalogosSat";
+import { FORMAS_PAGO, METODOS_PAGO } from "@/lib/catalogosSat";
+import type { ResultadoRegimenFiscal, ResultadoUsoCfdi } from "@/lib/catalogoSatBusquedaShared";
+import { useCatalogoSat } from "@/lib/useCatalogoSat";
 import type { Factura } from "@/lib/facturasShared";
 import { validarEstatusSat, type ResultadoEstatus } from "@/lib/estatusSat";
 import { GenerarPdfMenu } from "./GenerarPdfMenu";
@@ -60,6 +57,14 @@ export function FacturaDetalle({
   const [cfdi, setCfdi] = useState<Cfdi | null>(null);
   const [base64, setBase64] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const regimenesFiscales = useCatalogoSat<ResultadoRegimenFiscal>("regimenFiscal").map((r) => ({
+    value: r.id,
+    label: `${r.id} - ${r.texto}`,
+  }));
+  const usosCfdi = useCatalogoSat<ResultadoUsoCfdi>("usoCfdi").map((u) => ({
+    value: u.id,
+    label: `${u.id} - ${u.texto}`,
+  }));
   /** Resultado de consultar el SAT para esta factura en particular. */
   const [estatusSat, setEstatusSat] = useState<ResultadoEstatus | null>(null);
   const [validando, setValidando] = useState(false);
@@ -281,7 +286,7 @@ export function FacturaDetalle({
                 <Dato label="RFC" valor={cfdi?.emisor.rfc ?? factura.Rfc} mono />
                 <Dato
                   label="Régimen fiscal"
-                  valor={etiqueta(REGIMENES_FISCALES, cfdi?.emisor.regimenFiscal ?? "")}
+                  valor={etiqueta(regimenesFiscales, cfdi?.emisor.regimenFiscal ?? "")}
                 />
                 <Dato label="Lugar de expedición" valor={cfdi?.lugarExpedicion ?? ""} mono />
               </CardBody>
@@ -298,7 +303,7 @@ export function FacturaDetalle({
                 <Dato
                   label="Régimen fiscal"
                   valor={etiqueta(
-                    REGIMENES_FISCALES,
+                    regimenesFiscales,
                     cfdi?.receptor.regimenFiscal ?? factura.RegimenReceptor
                   )}
                 />
@@ -307,7 +312,7 @@ export function FacturaDetalle({
                   valor={cfdi?.receptor.domicilioFiscal ?? factura.DomicilioReceptor}
                   mono
                 />
-                <Dato label="Uso del CFDI" valor={etiqueta(USOS_CFDI, cfdi?.receptor.usoCfdi ?? "")} />
+                <Dato label="Uso del CFDI" valor={etiqueta(usosCfdi, cfdi?.receptor.usoCfdi ?? "")} />
                 {cfdi?.nomina && <DatosTrabajador receptor={cfdi.nomina.receptor} />}
               </CardBody>
             </Card>

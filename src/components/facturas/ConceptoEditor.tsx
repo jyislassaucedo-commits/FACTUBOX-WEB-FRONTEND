@@ -14,7 +14,7 @@ import {
 import { money } from "@/lib/cfdi";
 import type { ConceptoInput, ImpuestoConceptoInput, NaturalezaImpuesto } from "@/lib/timbrado";
 import { BuscadorClaveSat } from "./BuscadorClaveSat";
-import type { ResultadoClaveUnidad, ResultadoProductoServicio } from "@/lib/catalogoSatBusqueda";
+import type { ResultadoClaveUnidad, ResultadoProductoServicio } from "@/lib/catalogoSatBusquedaShared";
 
 const TIPOS_IMPUESTO = [
   { value: IMPUESTO_IVA, label: "IVA" },

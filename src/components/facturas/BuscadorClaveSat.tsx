@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cx, inputClass } from "@/components/ui";
-import type { CatalogoBuscable } from "@/lib/catalogoSatBusqueda";
+import type { CatalogoBuscable } from "@/lib/catalogoSatBusquedaShared";
 
 interface ResultadoBase {
   id: string;

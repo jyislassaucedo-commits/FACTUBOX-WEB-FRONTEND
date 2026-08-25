@@ -8,10 +8,11 @@ import {
   Input,
   Note,
   Pill,
-  Select,
   cx,
 } from "@/components/ui";
-import { REGIMENES_FISCALES } from "@/lib/catalogosSat";
+import { SelectorCatalogoSat } from "@/components/catalogosSat/SelectorCatalogoSat";
+import { aplicaPorRfc, type ResultadoRegimenFiscal } from "@/lib/catalogoSatBusquedaShared";
+import { useCatalogoSat } from "@/lib/useCatalogoSat";
 import type { EmisorInput } from "@/lib/emisores";
 
 export type EmisorFormValues = {
@@ -37,6 +38,9 @@ export function EmisorForm({
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const regimenes = useCatalogoSat<ResultadoRegimenFiscal>("regimenFiscal");
+  const regimenesParaRfc = aplicaPorRfc(regimenes, values.rfc);
 
   const sucio =
     logoFile !== null ||
@@ -118,18 +122,13 @@ export function EmisorForm({
           </Field>
 
           <Field label="Régimen fiscal" className="sm:col-span-2">
-            <Select
+            <SelectorCatalogoSat<ResultadoRegimenFiscal>
+              opciones={regimenesParaRfc}
               value={values.regimenFiscal}
+              placeholder="Busca por nombre o clave"
               required
-              onChange={(e) => setValues({ ...values, regimenFiscal: e.target.value })}
-            >
-              <option value="">Selecciona un régimen</option>
-              {REGIMENES_FISCALES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </Select>
+              onChange={(r) => setValues({ ...values, regimenFiscal: r.id })}
+            />
           </Field>
         </div>
 

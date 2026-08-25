@@ -1,22 +1,6 @@
 import { callLegacyPhpApi } from "./phpApi";
 import { getSession } from "./session";
-
-export type CatalogoBuscable = "productoServicio" | "productoServicioCartaPorte" | "claveUnidad";
-
-export interface ResultadoProductoServicio {
-  id: string;
-  texto: string;
-  iva_trasladado: string;
-  ieps_trasladado: string;
-  complemento: string;
-  estimulo_frontera: string;
-}
-
-export interface ResultadoClaveUnidad {
-  id: string;
-  texto: string;
-  simbolo: string;
-}
+import type { CatalogoBuscable, CatalogoCompleto } from "./catalogoSatBusquedaShared";
 
 /**
  * Autocompletado contra los catálogos SAT_* cargados en la base (ver
@@ -35,6 +19,23 @@ export async function buscarCatalogoSat<T>(
   const resp = await callLegacyPhpApi<{ Resultados: T[] }>(
     "/maa/mvc/CatalogoSat/api/buscarCatalogoV2.php",
     { Token: session.token, Catalogo: catalogo, Q: q }
+  );
+  if (resp.Error !== "0") return [];
+  return resp.Resultados;
+}
+
+/**
+ * Catálogo completo (RegimenFiscal, UsoCFDI): son chicos, se traen enteros
+ * una sola vez y el cliente filtra/busca en memoria - sin debounce ni
+ * round-trip por cada letra que se escribe.
+ */
+export async function obtenerCatalogoSat<T>(catalogo: CatalogoCompleto): Promise<T[]> {
+  const session = await getSession();
+  if (!session) return [];
+
+  const resp = await callLegacyPhpApi<{ Resultados: T[] }>(
+    "/maa/mvc/CatalogoSat/api/obtenerCatalogoV2.php",
+    { Token: session.token, Catalogo: catalogo }
   );
   if (resp.Error !== "0") return [];
   return resp.Resultados;

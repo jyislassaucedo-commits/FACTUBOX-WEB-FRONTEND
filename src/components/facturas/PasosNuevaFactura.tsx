@@ -18,14 +18,15 @@ import {
   buttonClass,
   cx,
 } from "@/components/ui";
-import {
-  FORMAS_PAGO,
-  METODOS_PAGO,
-  MONEDAS,
-  REGIMENES_FISCALES,
-  USOS_CFDI,
-} from "@/lib/catalogosSat";
+import { FORMAS_PAGO, METODOS_PAGO, MONEDAS } from "@/lib/catalogosSat";
 import { fechaHora, money } from "@/lib/cfdi";
+import { SelectorCatalogoSat } from "@/components/catalogosSat/SelectorCatalogoSat";
+import {
+  usosCompatibles,
+  type ResultadoRegimenFiscal,
+  type ResultadoUsoCfdi,
+} from "@/lib/catalogoSatBusquedaShared";
+import { useCatalogoSat } from "@/lib/useCatalogoSat";
 import { ConceptoEditor } from "./ConceptoEditor";
 import { ElegirFacturaOrigenModal } from "./ElegirFacturaOrigenModal";
 import {
@@ -55,6 +56,16 @@ type Comun = {
 function mensajeDe(problemas: Problema[], campo: string, mostrar: boolean) {
   if (!mostrar) return undefined;
   return problemas.find((p) => p.campo === campo)?.mensaje;
+}
+
+function etiquetaRegimen(regimenes: ResultadoRegimenFiscal[], id: string) {
+  const r = regimenes.find((x) => x.id === id);
+  return r ? `${r.id} - ${r.texto}` : id;
+}
+
+function etiquetaUso(usos: ResultadoUsoCfdi[], id: string) {
+  const u = usos.find((x) => x.id === id);
+  return u ? `${u.id} - ${u.texto}` : id;
 }
 
 /* ========================================================================== */
@@ -389,6 +400,12 @@ export function PasoReceptor({
   const err = (campo: string) => mensajeDe(problemas, campo, mostrarErrores);
   const esGenerico = borrador.receptorRfc === RFC_PUBLICO_GENERAL;
 
+  const regimenes = useCatalogoSat<ResultadoRegimenFiscal>("regimenFiscal");
+  const usos = useCatalogoSat<ResultadoUsoCfdi>("usoCfdi");
+  // El régimen del receptor ya elegido acota qué usos son válidos ahí - el
+  // SAT rechaza el CFDI si no coinciden.
+  const usosParaEsteReceptor = usosCompatibles(usos, receptorActual?.RegimenFiscal ?? "");
+
   return (
     <Card>
       <CardHeader
@@ -432,17 +449,13 @@ export function PasoReceptor({
         </Field>
 
         <Field label="Uso del CFDI" hint="Lo declara el receptor en su contabilidad.">
-          <Select
+          <SelectorCatalogoSat<ResultadoUsoCfdi>
+            opciones={usosParaEsteReceptor}
             value={borrador.usoCfdi}
-            onChange={(e) => set({ usoCfdi: e.target.value })}
-            aria-invalid={Boolean(err("usoCfdi"))}
-          >
-            {USOS_CFDI.map((u) => (
-              <option key={u.value} value={u.value}>
-                {u.label}
-              </option>
-            ))}
-          </Select>
+            placeholder="Busca por nombre o clave"
+            invalid={Boolean(err("usoCfdi"))}
+            onChange={(u) => set({ usoCfdi: u.id })}
+          />
           <FieldError mensaje={err("usoCfdi")} />
         </Field>
 
@@ -474,10 +487,7 @@ export function PasoReceptor({
                 <Dato etiqueta="RFC" valor={receptorActual.Rfc} mono />
                 <Dato
                   etiqueta="Régimen fiscal"
-                  valor={
-                    REGIMENES_FISCALES.find((r) => r.value === receptorActual.RegimenFiscal)
-                      ?.label ?? receptorActual.RegimenFiscal
-                  }
+                  valor={etiquetaRegimen(regimenes, receptorActual.RegimenFiscal)}
                 />
                 <Dato etiqueta="Domicilio fiscal (CP)" valor={receptorActual.DomicilioFiscal} mono />
               </dl>
@@ -900,6 +910,7 @@ export function PasoRevision({
   const esPago = borrador.tipo === "P";
   const pago = borrador.pago;
   const montoPago = parseFloat(pago.monto) || 0;
+  const usos = useCatalogoSat<ResultadoUsoCfdi>("usoCfdi");
 
   return (
     <div className="space-y-4">
@@ -960,7 +971,7 @@ export function PasoRevision({
             </p>
             <Dato etiqueta="Razón social" valor={receptorActual?.Nombre ?? "—"} />
             <Dato etiqueta="RFC" valor={receptorActual?.Rfc ?? "—"} mono />
-            <Dato etiqueta="Uso del CFDI" valor={esPago ? "CP01 - Pagos" : USOS_CFDI.find((u) => u.value === borrador.usoCfdi)?.label ?? borrador.usoCfdi} />
+            <Dato etiqueta="Uso del CFDI" valor={esPago ? "CP01 - Pagos" : etiquetaUso(usos, borrador.usoCfdi)} />
           </div>
 
           {esPago ? (

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buscarCatalogoSat, type CatalogoBuscable } from "@/lib/catalogoSatBusqueda";
+import { buscarCatalogoSat } from "@/lib/catalogoSatBusqueda";
+import type { CatalogoBuscable } from "@/lib/catalogoSatBusquedaShared";
 
 const CATALOGOS_VALIDOS: CatalogoBuscable[] = [
   "productoServicio",

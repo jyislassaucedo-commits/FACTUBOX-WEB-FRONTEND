@@ -2,7 +2,14 @@
 
 import { useState } from "react";
 import { inputClass } from "@/components/ui/styles";
-import { REGIMENES_FISCALES, USOS_CFDI } from "@/lib/catalogosSat";
+import { SelectorCatalogoSat } from "@/components/catalogosSat/SelectorCatalogoSat";
+import {
+  aplicaPorRfc,
+  usosCompatibles,
+  type ResultadoRegimenFiscal,
+  type ResultadoUsoCfdi,
+} from "@/lib/catalogoSatBusquedaShared";
+import { useCatalogoSat } from "@/lib/useCatalogoSat";
 import type { Receptor, ReceptorInput } from "@/lib/receptores";
 
 const VACIO: ReceptorInput = {
@@ -26,6 +33,11 @@ export function ReceptorFormModal({
   const [values, setValues] = useState<ReceptorInput>(VACIO);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const regimenes = useCatalogoSat<ResultadoRegimenFiscal>("regimenFiscal");
+  const usos = useCatalogoSat<ResultadoUsoCfdi>("usoCfdi");
+  const regimenesParaRfc = aplicaPorRfc(regimenes, values.rfc);
+  const usosCompatiblesConRegimen = usosCompatibles(usos, values.regimenFiscal);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -127,37 +139,34 @@ export function ReceptorFormModal({
               <label className="mb-1 block text-xs font-medium text-ink-2">
                 Régimen fiscal
               </label>
-              <select
-                className={inputClass}
+              <SelectorCatalogoSat<ResultadoRegimenFiscal>
+                opciones={regimenesParaRfc}
                 value={values.regimenFiscal}
+                placeholder="Busca por nombre o clave"
                 required
-                onChange={(e) => setValues({ ...values, regimenFiscal: e.target.value })}
-              >
-                <option value="">Selecciona</option>
-                {REGIMENES_FISCALES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(r) =>
+                  setValues({
+                    ...values,
+                    regimenFiscal: r.id,
+                    // El uso elegido puede dejar de ser válido para el nuevo régimen.
+                    usoCfdi: usosCompatibles(usos, r.id).some((u) => u.id === values.usoCfdi)
+                      ? values.usoCfdi
+                      : "",
+                  })
+                }
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-2">
                 Uso de CFDI
               </label>
-              <select
-                className={inputClass}
+              <SelectorCatalogoSat<ResultadoUsoCfdi>
+                opciones={usosCompatiblesConRegimen}
                 value={values.usoCfdi}
+                placeholder="Busca por nombre o clave"
                 required
-                onChange={(e) => setValues({ ...values, usoCfdi: e.target.value })}
-              >
-                <option value="">Selecciona</option>
-                {USOS_CFDI.map((u) => (
-                  <option key={u.value} value={u.value}>
-                    {u.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(u) => setValues({ ...values, usoCfdi: u.id })}
+              />
             </div>
           </div>
 

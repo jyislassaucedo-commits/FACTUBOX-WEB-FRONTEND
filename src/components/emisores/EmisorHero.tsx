@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Pill, buttonClass, cx } from "@/components/ui";
-import { REGIMENES_FISCALES } from "@/lib/catalogosSat";
+import type { ResultadoRegimenFiscal } from "@/lib/catalogoSatBusquedaShared";
+import { useCatalogoSat } from "@/lib/useCatalogoSat";
 import { diasRestantes, emisorHref, formatoFecha } from "@/lib/emisorNav";
 import type { EmisorSectionKey } from "@/lib/emisorNav";
 
@@ -36,8 +37,11 @@ export function EmisorHero({
   kpis: HeroKpi[];
 }) {
   const [copiado, setCopiado] = useState(false);
-  const regimenLabel =
-    REGIMENES_FISCALES.find((r) => r.value === regimen)?.label ?? `Régimen ${regimen}`;
+  const regimenes = useCatalogoSat<ResultadoRegimenFiscal>("regimenFiscal");
+  const regimenEncontrado = regimenes.find((r) => r.id === regimen);
+  const regimenLabel = regimenEncontrado
+    ? `${regimenEncontrado.id} - ${regimenEncontrado.texto}`
+    : `Régimen ${regimen}`;
   // "601 - General de Ley Personas Morales" -> "601 · General de Ley Personas Morales"
   const regimenCorto = regimenLabel.replace(" - ", " · ");
   const dias = tieneCsd ? diasRestantes(vigenciaCert) : null;
