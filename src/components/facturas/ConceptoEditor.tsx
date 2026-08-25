@@ -1,8 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { Button, Field, FieldError, Input, Pill, Select, cx } from "@/components/ui";
 import {
-  CLAVES_UNIDAD,
   IMPUESTO_IEPS,
   IMPUESTO_ISR,
   IMPUESTO_IVA,
@@ -13,6 +13,8 @@ import {
 } from "@/lib/catalogosSat";
 import { money } from "@/lib/cfdi";
 import type { ConceptoInput, ImpuestoConceptoInput, NaturalezaImpuesto } from "@/lib/timbrado";
+import { BuscadorClaveSat } from "./BuscadorClaveSat";
+import type { ResultadoClaveUnidad, ResultadoProductoServicio } from "@/lib/catalogoSatBusqueda";
 
 const TIPOS_IMPUESTO = [
   { value: IMPUESTO_IVA, label: "IVA" },
@@ -137,6 +139,8 @@ export function ConceptoEditor({
   const importe = (Number(concepto.cantidad) || 0) * (Number(concepto.valorUnitario) || 0);
   const conError = mostrarErrores && Object.keys(errores).length > 0;
 
+  const [textoProdServ, setTextoProdServ] = useState("");
+
   function set(cambios: Partial<ConceptoInput>) {
     onChange({ ...concepto, ...cambios });
   }
@@ -190,38 +194,37 @@ export function ConceptoEditor({
 
         <Field
           label="Clave producto/servicio"
-          hint="Catálogo c_ClaveProdServ del SAT."
+          hint="Busca por palabra o escribe la clave si ya la sabes."
           className="sm:col-span-4"
         >
-          <Input
-            className="font-mono"
-            inputMode="numeric"
-            maxLength={8}
-            placeholder="01010101"
-            value={concepto.claveProdServ}
-            onChange={(e) => set({ claveProdServ: e.target.value.replace(/\D/g, "") })}
-            aria-invalid={Boolean(err("claveProdServ"))}
+          <BuscadorClaveSat<ResultadoProductoServicio>
+            catalogo="productoServicio"
+            valorId={concepto.claveProdServ}
+            valorTexto={textoProdServ}
+            placeholder="Ej. servicios de facturación, 01010101…"
+            invalid={Boolean(err("claveProdServ"))}
+            onEscribir={(valor) => {
+              setTextoProdServ("");
+              set({ claveProdServ: valor });
+            }}
+            onElegir={(r) => {
+              setTextoProdServ(r.texto);
+              set({ claveProdServ: r.id });
+            }}
           />
           <FieldError mensaje={err("claveProdServ")} />
         </Field>
 
         <Field label="Unidad" className="sm:col-span-4">
-          <Select
-            value={concepto.claveUnidad}
-            onChange={(e) => {
-              const opcion = CLAVES_UNIDAD.find((u) => u.value === e.target.value);
-              set({
-                claveUnidad: e.target.value,
-                unidad: opcion?.label.split(" - ")[1] ?? e.target.value,
-              });
-            }}
-          >
-            {CLAVES_UNIDAD.map((u) => (
-              <option key={u.value} value={u.value}>
-                {u.label}
-              </option>
-            ))}
-          </Select>
+          <BuscadorClaveSat<ResultadoClaveUnidad>
+            catalogo="claveUnidad"
+            valorId={concepto.claveUnidad}
+            valorTexto={concepto.unidad}
+            placeholder="Ej. pieza, kilogramo, H87…"
+            invalid={Boolean(err("claveUnidad"))}
+            onEscribir={(valor) => set({ claveUnidad: valor, unidad: valor })}
+            onElegir={(r) => set({ claveUnidad: r.id, unidad: r.texto })}
+          />
           <FieldError mensaje={err("claveUnidad")} />
         </Field>
 
