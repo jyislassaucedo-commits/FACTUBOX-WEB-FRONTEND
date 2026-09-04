@@ -43,7 +43,7 @@ import {
 import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
 import type { Serie } from "@/lib/series";
-import type { TipoComprobante } from "@/lib/timbrado";
+import type { HallazgoSat, TipoComprobante } from "@/lib/timbrado";
 
 type Comun = {
   borrador: FacturaBorrador;
@@ -1180,6 +1180,126 @@ function Renglon({ etiqueta, valor }: { etiqueta: string; valor: string }) {
     <div className="flex items-baseline justify-between gap-4">
       <span className="text-[12.5px] text-ink-3">{etiqueta}</span>
       <span className="font-mono text-[13px] font-semibold text-ink">{valor}</span>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Revisión contra el SAT                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Resultado de pasar el comprobante ya armado y sellado por los esquemas,
+ * catálogos y reglas del SAT, en el servidor.
+ *
+ * Es distinto del panel de "Falta información": ese revisa el borrador y ve
+ * campos vacíos; esto revisa el XML que de verdad va a recibir el PAC y ve lo
+ * que solo se nota con el comprobante hecho — que los importes no cuadren, que
+ * el uso del CFDI no vaya con el régimen del receptor, que la clave ya no esté
+ * vigente.
+ *
+ * Un fallo de la revisión no es lo mismo que un comprobante malo: si el
+ * servidor no pudo revisar, se dice y se deja timbrar. No tiene sentido dejar
+ * a alguien sin facturar porque nuestra revisión se cayó.
+ */
+export function RevisionSat({
+  revisando,
+  hayResultado,
+  errores,
+  advertencias,
+  motivoFallo,
+  onReintentar,
+}: {
+  revisando: boolean;
+  /** Hay un veredicto para el comprobante tal como está ahora. */
+  hayResultado: boolean;
+  errores: HallazgoSat[];
+  advertencias: HallazgoSat[];
+  /** Por qué no se pudo revisar, si es que no se pudo. */
+  motivoFallo: string | null;
+  onReintentar: () => void;
+}) {
+  if (revisando) {
+    return (
+      <Note tone="info" title="Revisando ante el SAT…">
+        Se está armando el comprobante y comparándolo con los esquemas y
+        catálogos oficiales. No consume timbres.
+      </Note>
+    );
+  }
+
+  if (motivoFallo !== null) {
+    return (
+      <Note tone="warn" title="No se pudo revisar el comprobante">
+        {motivoFallo} Puedes timbrar de todas formas, pero sin esta comprobación
+        el PAC podría rechazarlo y el timbre se consumiría igual.{" "}
+        <button
+          type="button"
+          onClick={onReintentar}
+          className="font-semibold underline underline-offset-2"
+        >
+          Reintentar
+        </button>
+      </Note>
+    );
+  }
+
+  if (!hayResultado) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-3">
+      {errores.length > 0 && (
+        <Card>
+          <CardHeader
+            title={
+              errores.length === 1
+                ? "El SAT rechazaría este comprobante"
+                : `El SAT rechazaría este comprobante (${errores.length} motivos)`
+            }
+            description="Se revisó el CFDI ya armado y sellado. Hay que corregir esto antes de timbrar; si se manda así, el timbre se consume y el comprobante no se emite."
+          />
+          <CardBody className="space-y-1.5">
+            {errores.map((e, i) => (
+              <div
+                key={e.campo + i}
+                className="rounded-xl border border-danger/40 bg-danger-bg px-3.5 py-2.5"
+              >
+                <p className="font-mono text-[11.5px] font-semibold text-danger">{e.campo}</p>
+                <p className="mt-0.5 text-[12.5px] leading-relaxed text-danger">{e.mensaje}</p>
+              </div>
+            ))}
+          </CardBody>
+        </Card>
+      )}
+
+      {errores.length === 0 && (
+        <Note tone="ok" title="El comprobante pasa las reglas del SAT">
+          Se revisó contra los esquemas oficiales, los catálogos vigentes y el
+          sello. Nada de esto consumió timbres.
+        </Note>
+      )}
+
+      {advertencias.length > 0 && (
+        <Note
+          tone="warn"
+          title={
+            advertencias.length === 1
+              ? "Un detalle que conviene revisar"
+              : `${advertencias.length} detalles que conviene revisar`
+          }
+        >
+          <ul className="mt-1 space-y-1">
+            {advertencias.map((a, i) => (
+              <li key={a.campo + i}>
+                · <span className="font-mono text-[11.5px]">{a.campo}</span> {a.mensaje}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 opacity-80">Esto no impide timbrar.</p>
+        </Note>
+      )}
     </div>
   );
 }

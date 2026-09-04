@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useProgresoManual } from "@/components/carga/useAccionServidor";
 import Link from "next/link";
 import {
@@ -38,14 +38,29 @@ import {
   PasoRevision,
   PasoTipo,
   ResultadoTimbrado,
+  RevisionSat,
 } from "./PasosNuevaFactura";
 import { RelacionarFacturaModal } from "./RelacionarFacturaModal";
 import { ReceptorFormModal } from "@/components/receptores/ReceptorFormModal";
 import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
 import type { Serie } from "@/lib/series";
-import type { TimbrarResult } from "@/lib/timbrado";
+import type { TimbrarResult, ValidarResult } from "@/lib/timbrado";
 import { TIMBRES_BAJOS, type Timbres } from "@/lib/timbresShared";
+
+/**
+ * Lo que devolvió la última revisión contra el SAT, junto con la `clave` del
+ * comprobante que se revisó. Si el borrador cambia, la clave deja de coincidir
+ * y el resultado se descarta solo: un visto bueno viejo no debe amparar una
+ * factura distinta.
+ *
+ * `motivo` es distinto de "el comprobante está mal": significa que no se pudo
+ * revisar. Ese caso no bloquea el timbrado — si nuestra revisión se cae, no es
+ * razón para dejar a alguien sin poder facturar.
+ */
+type ResultadoRevision =
+  | { clave: string; datos: ValidarResult }
+  | { clave: string; motivo: string };
 
 export function NuevaFacturaWizard({
   emisores,
@@ -111,6 +126,16 @@ export function NuevaFacturaWizard({
   const progreso = useProgresoManual();
   const [errorEnvio, setErrorEnvio] = useState<string | null>(null);
   const [resultado, setResultado] = useState<TimbrarResult | null>(null);
+
+  /**
+   * Revisión del comprobante contra las reglas del SAT, hecha en el servidor.
+   * Se guarda igual que las series y los receptores: junto con la clave de la
+   * consulta que la produjo, para poder derivar "está revisando" comparando
+   * claves en vez de con un setState dentro del efecto.
+   */
+  const [revision, setRevision] = useState<ResultadoRevision | null>(null);
+  /** Clave cuya revisión está en vuelo, para no pedirla dos veces. */
+  const revisionEnVuelo = useRef<string | null>(null);
 
   function set(cambios: Partial<FacturaBorrador>) {
     setBorrador((prev) => ({ ...prev, ...cambios }));
@@ -191,12 +216,146 @@ export function NuevaFacturaWizard({
   const receptorActual = useMemo(() => receptorDe(borrador, ctx), [borrador, ctx]);
   const totales = useMemo(() => calcularTotales(borrador.conceptos), [borrador.conceptos]);
 
+  /**
+   * Arma el cuerpo que esperan /api/facturas y /api/facturas/validar.
+   *
+   * Es el mismo para los dos a propósito: la revisión tiene que mirar
+   * exactamente el comprobante que se va a timbrar, o no sirve de nada.
+   * Devuelve null si todavía falta el emisor o el receptor.
+   */
+  function construirCuerpo() {
+    const emisor = emisores.find((e) => e.Rfc === borrador.rfcEmisor);
+    if (!emisor || !receptorActual) return null;
+
+    // El <input type="datetime-local"> entrega "YYYY-MM-DDTHH:mm" (sin
+    // segundos); el SAT espera "YYYY-MM-DDTHH:mm:ss".
+    const fechaPagoConSegundos =
+      borrador.pago.fechaPago.length === 16
+        ? `${borrador.pago.fechaPago}:00`
+        : borrador.pago.fechaPago;
+
+    const docto = borrador.tipo === "P" ? construirDoctoRelacionado(borrador.pago) : null;
+
+    return {
+      tipoDeComprobante: borrador.tipo,
+      cfdiRelacionados:
+        borrador.tipo === "E" && borrador.relacion.uuids.length > 0
+          ? borrador.relacion
+          : undefined,
+      emisorToken: emisor.Token,
+      rfcEmisor: emisor.Rfc,
+      nombreEmisor: emisor.Nombre,
+      regimenEmisor: emisor.Regimen,
+      lugarExpedicion: emisor.LugarExp,
+      serie: borrador.serie,
+      folio: borrador.folio,
+      formaPago: borrador.formaPago,
+      metodoPago: borrador.metodoPago,
+      condicionesDePago: borrador.condicionesDePago.trim() || undefined,
+      receptorRfc: receptorActual.Rfc,
+      receptorNombre: receptorActual.Nombre,
+      receptorRegimenFiscal: receptorActual.RegimenFiscal,
+      receptorDomicilioFiscal: receptorActual.DomicilioFiscal,
+      receptorUsoCfdi: borrador.usoCfdi,
+      conceptos: borrador.conceptos,
+      pago:
+        borrador.tipo === "P" && docto
+          ? {
+              fechaPago: fechaPagoConSegundos,
+              formaDePagoP: borrador.pago.formaDePagoP,
+              monedaP: borrador.pago.monedaP,
+              tipoCambioP: borrador.pago.tipoCambioP || "1",
+              monto: (parseFloat(borrador.pago.monto) || 0).toFixed(2),
+              doctoRelacionado: [docto],
+            }
+          : undefined,
+    };
+  }
+
+  /**
+   * Tira el resultado guardado para que el efecto vuelva a pedir la revisión.
+   * Es lo que hace el botón de reintentar cuando la revisión no respondió.
+   */
+  function reintentarRevision() {
+    revisionEnVuelo.current = null;
+    setRevision(null);
+  }
+
   // Un CFDI de Pago no tiene receptor propio ni conceptos que capturar: el
   // paso "Pago" los reemplaza a ambos (ver pasosPara).
   const pasos = pasosPara(borrador.tipo);
   const indiceActual = pasos.findIndex((p) => p.id === pasoActual);
   const problemasPendientes = pasos.flatMap((p) => problemas[p.id]);
   const todoValido = problemasPendientes.length === 0;
+
+  /**
+   * La revisión vale solo mientras el comprobante no cambie. Se compara contra
+   * el cuerpo que se mandaría ahora mismo, en vez de invalidar desde cada
+   * setter: así ningún cambio se escapa y no queda un visto bueno viejo
+   * amparando una factura distinta.
+   */
+  const claveComprobante = useMemo(
+    () => {
+      const cuerpo = construirCuerpo();
+      return cuerpo === null ? null : JSON.stringify(cuerpo);
+    },
+    // Depende de todo lo que arma el comprobante.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [borrador, emisores, receptorActual]
+  );
+  const tocaRevisar =
+    pasoActual === "revision" && todoValido && claveComprobante !== null;
+  const revisionVigente =
+    revision !== null && revision.clave === claveComprobante ? revision : null;
+  const datosRevision =
+    revisionVigente !== null && "datos" in revisionVigente ? revisionVigente.datos : null;
+  const falloRevision =
+    revisionVigente !== null && "motivo" in revisionVigente ? revisionVigente.motivo : null;
+  // Se deriva de comparar claves, como cargandoSeries: así el efecto no tiene
+  // que marcar "revisando" con un setState síncrono.
+  const revisandoSat = tocaRevisar && revisionVigente === null;
+  const erroresSat = datosRevision?.Validacion.Errores ?? [];
+  const advertenciasSat = datosRevision?.Validacion.Advertencias ?? [];
+  const rechazadoPorSat = datosRevision !== null && datosRevision.Valido === "0";
+
+  // Al llegar al último paso se revisa sola: si el usuario tuviera que pedirlo,
+  // la mayoría timbraría sin hacerlo y el timbre se perdería igual.
+  useEffect(() => {
+    if (!tocaRevisar || claveComprobante === null) return;
+    if (revision !== null && revision.clave === claveComprobante) return;
+    if (revisionEnVuelo.current === claveComprobante) return;
+
+    const cuerpo = construirCuerpo();
+    if (cuerpo === null) return;
+    const clave = claveComprobante;
+    revisionEnVuelo.current = clave;
+    let vivo = true;
+
+    fetch("/api/facturas/validar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cuerpo),
+    })
+      .then(async (res) => {
+        const body = await res.json();
+        return res.ok
+          ? { clave, datos: body as ValidarResult }
+          : { clave, motivo: (body.error as string) ?? "No se pudo revisar" };
+      })
+      .catch(() => ({ clave, motivo: "No se pudo conectar con el servidor" }))
+      .then((r) => vivo && setRevision(r))
+      .finally(() => {
+        // Solo se libera si sigue siendo la petición vigente: si el borrador
+        // cambió, la clave en vuelo ya es otra y no hay que pisarla.
+        if (revisionEnVuelo.current === clave) revisionEnVuelo.current = null;
+      });
+
+    return () => {
+      vivo = false;
+    };
+    // construirCuerpo depende del borrador, que ya está resumido en la clave.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tocaRevisar, claveComprobante, revision]);
 
   // Si el saldo no se pudo leer (`null`) no se bloquea nada: se prefiere dejar
   // pasar y que el PAC decida antes que impedir emitir por un fallo de lectura.
@@ -254,6 +413,7 @@ export function NuevaFacturaWizard({
     }
   }
 
+
   async function timbrar() {
     setErrorEnvio(null);
     setIntentados(pasos.map((p) => p.id));
@@ -263,17 +423,13 @@ export function NuevaFacturaWizard({
       return;
     }
 
-    const emisor = emisores.find((e) => e.Rfc === borrador.rfcEmisor);
-    if (!emisor || !receptorActual) return;
+    if (rechazadoPorSat) {
+      toast("El SAT rechazaría este comprobante", "danger");
+      return;
+    }
 
-    // El <input type="datetime-local"> entrega "YYYY-MM-DDTHH:mm" (sin
-    // segundos); el SAT espera "YYYY-MM-DDTHH:mm:ss".
-    const fechaPagoConSegundos =
-      borrador.pago.fechaPago.length === 16
-        ? `${borrador.pago.fechaPago}:00`
-        : borrador.pago.fechaPago;
-
-    const docto = borrador.tipo === "P" ? construirDoctoRelacionado(borrador.pago) : null;
+    const cuerpo = construirCuerpo();
+    if (!cuerpo) return;
 
     setEnviando(true);
     // Bloqueante: timbrar consume un folio y un timbre ante el SAT. Un segundo
@@ -284,40 +440,7 @@ export function NuevaFacturaWizard({
       const res = await fetch("/api/facturas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tipoDeComprobante: borrador.tipo,
-          cfdiRelacionados:
-            borrador.tipo === "E" && borrador.relacion.uuids.length > 0
-              ? borrador.relacion
-              : undefined,
-          emisorToken: emisor.Token,
-          rfcEmisor: emisor.Rfc,
-          nombreEmisor: emisor.Nombre,
-          regimenEmisor: emisor.Regimen,
-          lugarExpedicion: emisor.LugarExp,
-          serie: borrador.serie,
-          folio: borrador.folio,
-          formaPago: borrador.formaPago,
-          metodoPago: borrador.metodoPago,
-          condicionesDePago: borrador.condicionesDePago.trim() || undefined,
-          receptorRfc: receptorActual.Rfc,
-          receptorNombre: receptorActual.Nombre,
-          receptorRegimenFiscal: receptorActual.RegimenFiscal,
-          receptorDomicilioFiscal: receptorActual.DomicilioFiscal,
-          receptorUsoCfdi: borrador.usoCfdi,
-          conceptos: borrador.conceptos,
-          pago:
-            borrador.tipo === "P" && docto
-              ? {
-                  fechaPago: fechaPagoConSegundos,
-                  formaDePagoP: borrador.pago.formaDePagoP,
-                  monedaP: borrador.pago.monedaP,
-                  tipoCambioP: borrador.pago.tipoCambioP || "1",
-                  monto: (parseFloat(borrador.pago.monto) || 0).toFixed(2),
-                  doctoRelacionado: [docto],
-                }
-              : undefined,
-        }),
+        body: JSON.stringify(cuerpo),
       });
       const body = await res.json();
 
@@ -432,6 +555,20 @@ export function NuevaFacturaWizard({
             />
           )}
 
+          {/* Revisión contra las reglas del SAT, hecha sobre el XML ya armado y
+              sellado. Es distinta de `problemas`, que mira el borrador: aquí se
+              cazan los rechazos que solo se ven con el comprobante hecho. */}
+          {pasoActual === "revision" && todoValido && (
+            <RevisionSat
+              revisando={revisandoSat}
+              hayResultado={datosRevision !== null}
+              errores={erroresSat}
+              advertencias={advertenciasSat}
+              motivoFallo={falloRevision}
+              onReintentar={reintentarRevision}
+            />
+          )}
+
           {/* Sin saldo el timbrado falla en el PAC con un error críptico: más
               vale decirlo antes de que llene todo el comprobante. */}
           {pasoActual === "revision" && sinTimbres && (
@@ -469,9 +606,11 @@ export function NuevaFacturaWizard({
                 <Button
                   variant="primary"
                   onClick={timbrar}
-                  disabled={enviando || !todoValido || sinTimbres}
+                  disabled={
+                    enviando || !todoValido || sinTimbres || rechazadoPorSat || revisandoSat
+                  }
                 >
-                  {enviando ? "Timbrando…" : "Timbrar factura"}
+                  {enviando ? "Timbrando…" : revisandoSat ? "Revisando…" : "Timbrar factura"}
                 </Button>
               ) : (
                 <Button variant="primary" onClick={siguiente}>

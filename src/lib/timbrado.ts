@@ -510,6 +510,53 @@ export type TimbrarResult = {
   CFDI_Base64: string;
 };
 
+/** Un hallazgo del validador: el campo del CFDI y qué tiene de malo. */
+export type HallazgoSat = {
+  campo: string;
+  mensaje: string;
+};
+
+export type ValidarResult = {
+  /** "1" si el comprobante pasaría el filtro del PAC. */
+  Valido: "0" | "1";
+  Validacion: {
+    /** El SAT lo rechazaría: hay que corregir antes de timbrar. */
+    Errores: HallazgoSat[];
+    /** Conviene revisarlo, pero no impide timbrar. */
+    Advertencias: HallazgoSat[];
+    /** Capas que no se pudieron correr, con el motivo. */
+    NoRevisado: string[];
+  };
+};
+
+/**
+ * Ensaya el timbrado sin timbrar: el backend arma y sella el comprobante y lo
+ * revisa contra los esquemas, catálogos y reglas del SAT. No habla con el PAC
+ * y no descuenta timbres.
+ *
+ * Vale la pena aunque `validar` de facturaNueva.ts ya haya pasado: esa revisa
+ * el borrador, y esto revisa el XML que de verdad va a recibir el SAT, ya
+ * armado y sellado.
+ */
+export async function validarFactura(
+  emisorToken: string,
+  input: NuevaFacturaInput
+): Promise<PhpResponse<ValidarResult>> {
+  const session = await getSession();
+  if (!session) return { Error: "1", DescripError: "No autenticado" };
+
+  const datosJSON = buildDatosJSON(input);
+  const datosJSON64 = Buffer.from(JSON.stringify(datosJSON)).toString("base64");
+
+  return callLegacyPhpApi<ValidarResult>("/endpoint/apiTimbradoV2.php", {
+    SessionToken: session.token,
+    Token: emisorToken,
+    Tarea: "VALIDACION",
+    ModoTimbrado: MODO_TIMBRADO,
+    DatosJSON: datosJSON64,
+  });
+}
+
 export async function timbrarFactura(
   emisorToken: string,
   input: NuevaFacturaInput
