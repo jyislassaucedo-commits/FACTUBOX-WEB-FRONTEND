@@ -11,6 +11,7 @@ import { dias, etiquetaPeriodicidad, pesos } from "@/lib/nominaShared";
 import { CorridaFormModal } from "./CorridaFormModal";
 import { IncidenciasModal } from "./IncidenciasModal";
 import { SelectorEmpleados } from "./SelectorEmpleados";
+import { RepetirCorridaModal } from "./RepetirCorridaModal";
 import { EmpleadoFormModal } from "@/components/empleados/EmpleadoFormModal";
 import type { Empleado } from "@/lib/empleados";
 import type { ConceptoRecibo, IncidenciaNomina, PeriodoNomina, ReciboNomina } from "@/lib/nomina";
@@ -71,6 +72,7 @@ export function CorridaSection({
   const [eligiendo, setEligiendo] = useState(false);
   const [quitando, setQuitando] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<string | null>(null);
+  const [repitiendo, setRepitiendo] = useState(false);
 
   const pendientes = recibos.filter((r) => r.Estado !== "TIMBRADO");
   const timbrados = recibos.filter((r) => r.Estado === "TIMBRADO");
@@ -211,6 +213,16 @@ export function CorridaSection({
                   </Button>
                 </>
               )}
+              {recibos.length > 0 && periodo.TipoNomina !== "E" && (
+                <Button
+                  variant="ghost"
+                  onClick={() => setRepitiendo(true)}
+                  disabled={calculando || corriendo}
+                  title="Crear la corrida del periodo siguiente con esta misma gente"
+                >
+                  Repetir
+                </Button>
+              )}
               <Button variant="secondary" onClick={() => setEligiendo(true)} disabled={calculando || corriendo}>
                 {calculando ? "Calculando…" : recibos.length ? "Recalcular" : "Correr nómina"}
               </Button>
@@ -265,6 +277,37 @@ export function CorridaSection({
           </CardBody>
         )}
       </Card>
+
+      {/* Cuando ya no falta nada por timbrar, lo siguiente que se va a querer
+          hacer es la quincena que sigue. Vale mas ofrecerlo aqui que dejar que
+          se regrese a la lista a crearla de cero. */}
+      {recibos.length > 0 && pendientes.length === 0 && conError.length === 0 && periodo.TipoNomina !== "E" && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[13px] border border-ok/25 bg-ok/[0.06] px-4 py-3.5">
+          <div className="min-w-0">
+            <p className="text-[13.3px] font-semibold text-ink">Esta corrida ya quedó</p>
+            <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-2">
+              Cuando toque el periodo siguiente no la vuelvas a armar: repítela y te la deja lista con los
+              mismos {recibos.length} {recibos.length === 1 ? "empleado" : "empleados"} y las fechas nuevas.
+            </p>
+          </div>
+          <Button variant="secondary" onClick={() => setRepitiendo(true)}>
+            Repetir en el periodo siguiente
+          </Button>
+        </div>
+      )}
+
+      {repitiendo && (
+        <RepetirCorridaModal
+          rfc={rfc}
+          idPeriodo={String(periodo.Id)}
+          onClose={() => setRepitiendo(false)}
+          onCreada={(id, empleados) => {
+            setRepitiendo(false);
+            toast(`Corrida creada y calculada para ${empleados} empleados`);
+            router.push(`/emisores/${encodeURIComponent(rfc)}/nomina/${id}`);
+          }}
+        />
+      )}
 
       {avance && (
         <Card>

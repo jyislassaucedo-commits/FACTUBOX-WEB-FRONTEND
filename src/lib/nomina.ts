@@ -320,3 +320,50 @@ export async function quitarRecibo(rfcEmisor: string, idPeriodo: string, idEmple
     IdEmpleado: idEmpleado,
   });
 }
+
+/** Lo que se llevaría al repetir, sin crear nada todavía. */
+export type PrevioRepetir = {
+  Periodo: {
+    FechaInicialPago: string;
+    FechaFinalPago: string;
+    FechaPago: string;
+    DiasPagados: string;
+    TipoNomina: string;
+    Periodicidad: string;
+    Descripcion: string | null;
+  };
+  Empleados: number;
+  Bajas: { IdEmpleado: number; Nombre: string; FechaBaja: string }[];
+  Fijas: number;
+};
+
+/**
+ * Repite la corrida en el periodo siguiente.
+ *
+ * Con `previsualizar` no toca nada: devuelve las fechas propuestas y a cuántos
+ * alcanzaría, para poder enseñarlo antes de que alguien confirme. Las fechas
+ * las calcula el backend en los dos casos; hacerlo aquí sería tener dos
+ * versiones de la misma regla esperando a separarse.
+ */
+export async function repetirPeriodo(
+  rfcEmisor: string,
+  id: string,
+  opciones?: { copiarFijas?: boolean; previsualizar?: boolean }
+) {
+  return llamar<
+    PrevioRepetir & {
+      Id: string;
+      Origen: string;
+      Calculados: { Nombre: string; Neto: string; Incidencias: number }[];
+      Omitidos: { Nombre: string; Motivo: string }[];
+      Avisos: { Nombre: string; Aviso: string }[];
+      FijasCopiadas: number;
+      Recibos: ReciboNomina[];
+    }
+  >("repetirPeriodoNominaV2.php", {
+    RfcEmisor: rfcEmisor,
+    IdPeriodo: id,
+    ...(opciones?.copiarFijas ? { CopiarFijas: "1" } : {}),
+    ...(opciones?.previsualizar ? { Previsualizar: "1" } : {}),
+  });
+}

@@ -9,6 +9,7 @@ import {
 } from "@/components/ui";
 import { dias, etiquetaPeriodicidad, pesos } from "@/lib/nominaShared";
 import { CorridaFormModal } from "./CorridaFormModal";
+import { RepetirCorridaModal } from "./RepetirCorridaModal";
 import type { PeriodoNomina } from "@/lib/nomina";
 
 /**
@@ -31,6 +32,13 @@ export function NominaSection({
   const router = useRouter();
   const toast = useToast();
   const [abierto, setAbierto] = useState(false);
+  const [repetir, setRepetir] = useState<string | null>(null);
+
+  // La corrida que se puede repetir de un clic: la ordinaria más reciente que
+  // ya se corrió. Sin recibos no hay a quién repetirle. Y ordinaria a
+  // propósito: un aguinaldo no tiene "periodo siguiente", y ofrecerlo como
+  // atajo principal sería empujar justo lo que no se debe repetir.
+  const ultima = periodos.find((p) => p.TipoNomina !== "E" && Number(p.Recibos ?? 0) > 0) ?? null;
 
   return (
     <div className="space-y-4">
@@ -42,6 +50,22 @@ export function NominaSection({
           </Link>{" "}
           antes de correr una nómina.
         </Note>
+      )}
+
+      {ultima && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[13px] border border-brand/25 bg-brand/[0.06] px-4 py-3.5">
+          <div className="min-w-0">
+            <p className="text-[13.3px] font-semibold text-ink">¿La misma nómina otra vez?</p>
+            <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-2">
+              La última fue del {ultima.FechaInicialPago} al {ultima.FechaFinalPago}, con {ultima.Recibos}{" "}
+              {Number(ultima.Recibos) === 1 ? "recibo" : "recibos"}. Repetirla te deja el periodo siguiente
+              listo: la misma gente y ya calculado.
+            </p>
+          </div>
+          <Button variant="primary" onClick={() => setRepetir(String(ultima.Id))}>
+            Repetir la última
+          </Button>
+        </div>
       )}
 
       <Card>
@@ -125,12 +149,24 @@ export function NominaSection({
                       )}
                     </Td>
                     <Td>
-                      <Link
-                        href={`/emisores/${encodeURIComponent(rfc)}/nomina/${p.Id}`}
-                        className="text-[12.5px] font-semibold text-brand hover:underline"
-                      >
-                        Abrir
-                      </Link>
+                      <div className="flex items-center gap-3">
+                        <Link
+                          href={`/emisores/${encodeURIComponent(rfc)}/nomina/${p.Id}`}
+                          className="text-[12.5px] font-semibold text-brand hover:underline"
+                        >
+                          Abrir
+                        </Link>
+                        {recibos > 0 && p.TipoNomina !== "E" && (
+                          <button
+                            type="button"
+                            onClick={() => setRepetir(String(p.Id))}
+                            className="text-[12.5px] font-semibold text-ink-3 transition hover:text-brand hover:underline"
+                            title="Crear la corrida del periodo siguiente con esta misma gente"
+                          >
+                            Repetir
+                          </button>
+                        )}
+                      </div>
                     </Td>
                   </tr>
                 );
@@ -139,6 +175,19 @@ export function NominaSection({
           </Table>
         )}
       </Card>
+
+      {repetir && (
+        <RepetirCorridaModal
+          rfc={rfc}
+          idPeriodo={repetir}
+          onClose={() => setRepetir(null)}
+          onCreada={(id, empleados) => {
+            setRepetir(null);
+            toast(`Corrida creada y calculada para ${empleados} empleados`);
+            router.push(`/emisores/${encodeURIComponent(rfc)}/nomina/${id}`);
+          }}
+        />
+      )}
 
       {abierto && (
         <CorridaFormModal
