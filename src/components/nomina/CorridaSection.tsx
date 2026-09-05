@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -13,7 +13,7 @@ import { IncidenciasModal } from "./IncidenciasModal";
 import { SelectorEmpleados } from "./SelectorEmpleados";
 import { EmpleadoFormModal } from "@/components/empleados/EmpleadoFormModal";
 import type { Empleado } from "@/lib/empleados";
-import type { IncidenciaNomina, PeriodoNomina, ReciboNomina } from "@/lib/nomina";
+import type { ConceptoRecibo, IncidenciaNomina, PeriodoNomina, ReciboNomina } from "@/lib/nomina";
 import type { Serie } from "@/lib/series";
 
 type Omitido = { IdEmpleado: string; Nombre: string; Motivo: string };
@@ -32,6 +32,7 @@ export function CorridaSection({
   emisorToken,
   periodo,
   recibos,
+  conceptos,
   incidencias,
   empleados,
   registroPatronal,
@@ -41,6 +42,8 @@ export function CorridaSection({
   emisorToken: string;
   periodo: PeriodoNomina;
   recibos: ReciboNomina[];
+  /** El desglose de cada recibo, por id de recibo. */
+  conceptos: Record<string, ConceptoRecibo[]>;
   /** Lo que se capturó de cada quien en este periodo, por id de empleado. */
   incidencias: Record<string, IncidenciaNomina[]>;
   /** Para poder completarle los datos a quien quedó fuera sin salir de aquí. */
@@ -67,6 +70,7 @@ export function CorridaSection({
   const [completando, setCompletando] = useState<Empleado | null>(null);
   const [eligiendo, setEligiendo] = useState(false);
   const [quitando, setQuitando] = useState<string | null>(null);
+  const [abierto, setAbierto] = useState<string | null>(null);
 
   const pendientes = recibos.filter((r) => r.Estado !== "TIMBRADO");
   const timbrados = recibos.filter((r) => r.Estado === "TIMBRADO");
@@ -384,6 +388,7 @@ export function CorridaSection({
           <Table>
             <thead>
               <tr>
+                <Th className="w-8" />
                 <Th>Empleado</Th>
                 <Th className="text-right">Días</Th>
                 <Th className="text-right">Percepciones</Th>
@@ -396,7 +401,15 @@ export function CorridaSection({
             </thead>
             <tbody>
               {recibos.map((r) => (
-                <tr key={r.Id} className="transition hover:bg-surface-2">
+                <Fragment key={r.Id}>
+                <tr className="transition hover:bg-surface-2">
+                  <Td>
+                    <button type="button" aria-label="Ver el desglose"
+                      onClick={() => setAbierto(abierto === r.Id ? null : r.Id)}
+                      className="text-ink-3 transition hover:text-ink">
+                      {abierto === r.Id ? "▾" : "▸"}
+                    </button>
+                  </Td>
                   <Td>
                     <span className="block text-[13.3px] font-semibold text-ink">{r.Nombre}</span>
                     <span className="block font-mono text-[11.3px] text-ink-3">
@@ -425,7 +438,7 @@ export function CorridaSection({
                       <Pill tone="neutral">por timbrar</Pill>
                     )}
                   </Td>
-                  <Td>
+                  <Td onClick={(e) => e.stopPropagation()}>
                     {/* Un recibo timbrado ya no admite cambios: lo que hay que
                         corregir es el CFDI ante el SAT, no la captura. */}
                     {r.Estado === "TIMBRADO" ? (
@@ -458,6 +471,14 @@ export function CorridaSection({
                     )}
                   </Td>
                 </tr>
+                {abierto === r.Id && (
+                  <tr>
+                    <Td colSpan={8} className="bg-surface-2 p-0">
+                      <Desglose recibo={r} conceptos={conceptos[r.Id] ?? []} />
+                    </Td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </Table>
@@ -535,6 +556,173 @@ export function CorridaSection({
           }}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * El desglose de un recibo: de dónde sale el neto.
+ *
+ * Muestra la aritmética completa, no solo los renglones. Alguien que reclama su
+ * pago no pregunta "¿cuánto?", pregunta "¿por qué ese?", y la respuesta no puede
+ * ser abrir el XML.
+ *
+ * El ISR va aparte de las demás deducciones porque tiene su propia historia: lo
+ * que la tarifa causó, lo que el subsidio cubrió, y lo que quedó por retener.
+ * Solo uno de los dos últimos puede ser distinto de cero — o se le retiene o se
+ * le entrega — y verlos juntos es lo que hace entendible el número.
+ */
+function Desglose({
+  recibo,
+  conceptos,
+}: {
+  recibo: ReciboNomina;
+  conceptos: ConceptoRecibo[];
+}) {
+  const de = (grupo: string) => conceptos.filter((c) => c.grupo === grupo);
+  const total = (c: ConceptoRecibo) =>
+    parseFloat(c.importe_gravado || "0") + parseFloat(c.importe_exento || "0");
+
+  const percepciones = de("PERCEPCION");
+  const deducciones = de("DEDUCCION");
+  const otrosPagos = de("OTRO_PAGO");
+  const subsidioEntregado = parseFloat(recibo.SubsidioEntregado || "0");
+
+  if (conceptos.length === 0) {
+    return (
+      <p className="px-5 py-4 text-[12.5px] text-ink-3">
+        Sin desglose guardado. Vuelve a correr la nómina para generarlo.
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid gap-5 px-5 py-4 lg:grid-cols-2">
+      <div className="space-y-4">
+        <Bloque titulo="Percepciones" total={recibo.TotalPercepciones}>
+          {percepciones.map((c, i) => (
+            <Renglon key={c.tipo + i} clave={c.tipo} concepto={c.concepto} importe={total(c)}
+              nota={
+                parseFloat(c.importe_exento) > 0
+                  ? parseFloat(c.importe_gravado) > 0
+                    ? `${pesos(c.importe_gravado)} gravado · ${pesos(c.importe_exento)} exento`
+                    : "exento"
+                  : undefined
+              } />
+          ))}
+        </Bloque>
+
+        {otrosPagos.length > 0 && (
+          <Bloque titulo="Otros pagos" total={recibo.TotalOtrosPagos}>
+            {otrosPagos.map((c, i) => (
+              <Renglon key={c.tipo + i} clave={c.tipo} concepto={c.concepto} importe={total(c)} />
+            ))}
+          </Bloque>
+        )}
+      </div>
+
+      <div className="space-y-4">
+        <Bloque titulo="Deducciones" total={recibo.TotalDeducciones}>
+          {deducciones.map((c, i) => (
+            <Renglon key={c.tipo + i} clave={c.tipo} concepto={c.concepto} importe={total(c)} />
+          ))}
+        </Bloque>
+
+        <div className="rounded-xl border border-line-2 p-3.5">
+          <p className="mb-2 text-[11.5px] font-semibold uppercase tracking-wide text-ink-3">
+            Cómo salió el ISR
+          </p>
+          <Linea etiqueta="Causado por la tarifa" valor={recibo.IsrCausado} />
+          <Linea etiqueta="Subsidio al empleo" valor={recibo.SubsidioCausado} signo="−" />
+          {subsidioEntregado > 0 ? (
+            <Linea etiqueta="Se le entrega la diferencia" valor={recibo.SubsidioEntregado} fuerte
+              nota="Su subsidio superó al ISR, así que no se le retiene nada." />
+          ) : (
+            <Linea etiqueta="Se le retiene" valor={recibo.IsrRetenido} fuerte />
+          )}
+        </div>
+
+        <div className="rounded-xl border border-brand/40 bg-brand-050 p-3.5">
+          <Linea etiqueta="Percepciones" valor={recibo.TotalPercepciones} />
+          {parseFloat(recibo.TotalOtrosPagos || "0") > 0 && (
+            <Linea etiqueta="Otros pagos" valor={recibo.TotalOtrosPagos} signo="+" />
+          )}
+          <Linea etiqueta="Deducciones" valor={recibo.TotalDeducciones} signo="−" />
+          <div className="mt-1.5 border-t border-brand/30 pt-1.5">
+            <Linea etiqueta="Le llega" valor={recibo.Neto} fuerte />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Bloque({
+  titulo,
+  total,
+  children,
+}: {
+  titulo: string;
+  total: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-line-2 p-3.5">
+      <div className="mb-2 flex items-baseline justify-between">
+        <p className="text-[11.5px] font-semibold uppercase tracking-wide text-ink-3">{titulo}</p>
+        <p className="font-mono text-[12.5px] font-semibold text-ink">{pesos(total)}</p>
+      </div>
+      <div className="space-y-1">{children}</div>
+    </div>
+  );
+}
+
+function Renglon({
+  clave,
+  concepto,
+  importe,
+  nota,
+}: {
+  clave: string;
+  concepto: string;
+  importe: number;
+  nota?: string;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-[12.5px]">
+      <span className="min-w-0">
+        <span className="font-mono text-[11px] text-ink-4">{clave}</span>{" "}
+        <span className="text-ink-2">{concepto}</span>
+        {nota && <span className="block text-[11px] text-ink-3">{nota}</span>}
+      </span>
+      <span className="shrink-0 font-mono text-ink">{pesos(importe)}</span>
+    </div>
+  );
+}
+
+function Linea({
+  etiqueta,
+  valor,
+  signo,
+  fuerte,
+  nota,
+}: {
+  etiqueta: string;
+  valor: string;
+  signo?: string;
+  fuerte?: boolean;
+  nota?: string;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-[12.5px]">
+      <span className={fuerte ? "font-semibold text-ink" : "text-ink-2"}>
+        {signo ? `${signo} ` : ""}
+        {etiqueta}
+        {nota && <span className="block text-[11px] font-normal text-ink-3">{nota}</span>}
+      </span>
+      <span className={`shrink-0 font-mono ${fuerte ? "font-semibold text-ink" : "text-ink-2"}`}>
+        {pesos(valor)}
+      </span>
     </div>
   );
 }

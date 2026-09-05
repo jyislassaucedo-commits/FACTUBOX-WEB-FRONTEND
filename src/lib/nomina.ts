@@ -42,6 +42,17 @@ export type ReciboNomina = {
   Error: string | null;
 };
 
+/** Un renglón del recibo, tal como va al XML. */
+export type ConceptoRecibo = {
+  grupo: "PERCEPCION" | "DEDUCCION" | "OTRO_PAGO";
+  tipo: string;
+  clave: string;
+  concepto: string;
+  importe_gravado: string;
+  importe_exento: string;
+  orden: string;
+};
+
 export type IncidenciaNomina = {
   id: string;
   tipo: string;
@@ -103,7 +114,14 @@ export async function getPeriodos(rfcEmisor: string): Promise<PeriodoNomina[]> {
 export async function getPeriodo(
   rfcEmisor: string,
   id: string
-): Promise<PhpResponse<{ Periodo: PeriodoNomina; Recibos: ReciboNomina[] }>> {
+): Promise<
+  PhpResponse<{
+    Periodo: PeriodoNomina;
+    Recibos: ReciboNomina[];
+    /** El desglose de cada recibo, por id de recibo. */
+    Conceptos: Record<string, ConceptoRecibo[]>;
+  }>
+> {
   return llamar("getPeriodoNominaV2.php", { RfcEmisor: rfcEmisor, Id: id });
 }
 

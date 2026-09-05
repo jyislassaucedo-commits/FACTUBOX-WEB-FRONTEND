@@ -10,7 +10,11 @@ export async function GET(
   if (resp.Error !== "0") {
     return NextResponse.json({ error: resp.DescripError }, { status: 400 });
   }
-  return NextResponse.json({ periodo: resp.Periodo, recibos: resp.Recibos });
+  return NextResponse.json({
+    periodo: resp.Periodo,
+    recibos: resp.Recibos,
+    conceptos: resp.Conceptos ?? {},
+  });
 }
 
 export async function DELETE(

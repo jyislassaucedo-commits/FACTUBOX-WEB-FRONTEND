@@ -46,6 +46,7 @@ export default async function CorridaPage({
       emisorToken={contexto.emisor.Token}
       periodo={resp.Periodo}
       recibos={resp.Recibos ?? []}
+      conceptos={resp.Conceptos ?? {}}
       incidencias={inc.Error === "0" ? inc.PorEmpleado ?? {} : {}}
       empleados={contexto.empleados}
       registroPatronal={registroPatronal}
