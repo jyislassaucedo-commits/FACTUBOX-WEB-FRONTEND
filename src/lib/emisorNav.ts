@@ -16,6 +16,7 @@ export type EmisorSectionKey =
   | "series"
   | "receptores"
   | "empleados"
+  | "nomina"
   | "disenos";
 
 export type EmisorSection = {
@@ -25,7 +26,7 @@ export type EmisorSection = {
   label: string;
   /** Texto corto para el dropdown de la barra superior. */
   description: string;
-  group: "emisor" | "catalogos";
+  group: "emisor" | "catalogos" | "operacion";
 };
 
 export const EMISOR_SECTIONS: EmisorSection[] = [
@@ -70,6 +71,13 @@ export const EMISOR_SECTIONS: EmisorSection[] = [
     label: "Empleados",
     description: "Plantilla para los recibos de nómina",
     group: "catalogos",
+  },
+  {
+    key: "nomina",
+    segment: "nomina",
+    label: "Nómina",
+    description: "Corre y timbra la nómina del periodo",
+    group: "operacion",
   },
   {
     key: "disenos",

@@ -35,6 +35,7 @@ export function EmisorNav({
   const grupos = [
     { titulo: "Emisor", items: EMISOR_SECTIONS.filter((s) => s.group === "emisor") },
     { titulo: "Catálogos", items: EMISOR_SECTIONS.filter((s) => s.group === "catalogos") },
+    { titulo: "Operación", items: EMISOR_SECTIONS.filter((s) => s.group === "operacion") },
   ];
 
   return (
