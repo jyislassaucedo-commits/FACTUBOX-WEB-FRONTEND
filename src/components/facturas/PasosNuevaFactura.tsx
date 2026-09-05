@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Button,
   Card,
@@ -73,6 +74,8 @@ function etiquetaUso(usos: ResultadoUsoCfdi[], id: string) {
 /* ========================================================================== */
 
 export function PasoTipo({ borrador, set }: Comun) {
+  const router = useRouter();
+
   return (
     <Card>
       <CardHeader
@@ -87,8 +90,14 @@ export function PasoTipo({ borrador, set }: Comun) {
               <button
                 key={tipo.value}
                 type="button"
-                disabled={!tipo.disponible}
-                onClick={() =>
+                disabled={!tipo.disponible && !tipo.hechoEn}
+                onClick={() => {
+                  if (tipo.hechoEn) {
+                    router.push(
+                      `/emisores/${encodeURIComponent(borrador.rfcEmisor)}/${tipo.hechoEn.segmento}`
+                    );
+                    return;
+                  }
                   set({
                     tipo: tipo.value as TipoComprobante,
                     // La serie depende del tipo: al cambiarlo hay que
@@ -102,11 +111,13 @@ export function PasoTipo({ borrador, set }: Comun) {
                         : { tipoRelacion: "01", uuids: [] },
                     // El uso más común de una nota de crédito.
                     usoCfdi: tipo.value === "E" ? "G02" : borrador.usoCfdi,
-                  })
-                }
+                  });
+                }}
                 className={cx(
                   "focus-brand rounded-xl border p-4 text-left transition",
-                  !tipo.disponible
+                  tipo.hechoEn
+                    ? "border-line bg-surface-2 hover:-translate-y-0.5 hover:border-brand hover:shadow-raised"
+                    : !tipo.disponible
                     ? "cursor-not-allowed border-line bg-surface-2 opacity-60"
                     : activo
                       ? "border-brand bg-brand-050 shadow-card"
@@ -124,6 +135,8 @@ export function PasoTipo({ borrador, set }: Comun) {
                   </span>
                   {tipo.disponible ? (
                     activo && <Pill tone="brand">Seleccionado</Pill>
+                  ) : tipo.hechoEn ? (
+                    <Pill tone="info">En otra pantalla</Pill>
                   ) : (
                     <Pill>Próximamente</Pill>
                   )}
@@ -136,6 +149,11 @@ export function PasoTipo({ borrador, set }: Comun) {
                 </span>
                 {!tipo.disponible && tipo.motivo && (
                   <span className="mt-2 block text-[11.5px] text-ink-4">{tipo.motivo}</span>
+                )}
+                {tipo.hechoEn && (
+                  <span className="mt-2 block text-[12px] font-semibold text-brand">
+                    {tipo.hechoEn.etiqueta} →
+                  </span>
                 )}
               </button>
             );

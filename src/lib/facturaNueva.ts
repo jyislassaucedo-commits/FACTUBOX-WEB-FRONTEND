@@ -36,6 +36,16 @@ export type OpcionTipo = {
   disponible: boolean;
   /** Por qué todavía no se puede emitir desde aquí. */
   motivo?: string;
+  /**
+   * Para los que SÍ se pueden emitir, pero no desde este asistente.
+   * `segmento` es relativo a /emisores/<rfc>.
+   *
+   * La distinción importa: "Próximamente" y "está en otra pantalla" se ven
+   * igual de deshabilitados, pero uno significa que no existe y el otro que el
+   * usuario está en el lugar equivocado. Decir lo primero cuando es lo segundo
+   * hace que alguien concluya que la función no está.
+   */
+  hechoEn?: { etiqueta: string; segmento: string };
 };
 
 export const TIPOS_COMPROBANTE: OpcionTipo[] = [
@@ -69,7 +79,12 @@ export const TIPOS_COMPROBANTE: OpcionTipo[] = [
     resumen: "Recibo de nómina",
     detalle: "Pago a empleados, con percepciones, deducciones e incidencias.",
     disponible: false,
-    motivo: "Necesita el complemento Nómina 1.2, que aún no está en esta pantalla.",
+    // No se emite de una en una: la nómina se corre por periodo -- se le
+    // calcula a todos los empleados que entran y se timbran juntos -- y eso no
+    // cabe en un asistente que arma un solo comprobante.
+    motivo:
+      "Se corre por periodo, no de una en una: se le calcula a todos los empleados y se timbran juntos.",
+    hechoEn: { etiqueta: "Ir a Nómina", segmento: "nomina" },
   },
   {
     value: "T",
