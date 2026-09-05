@@ -43,7 +43,7 @@ export default async function EmisorLayout({
     );
   }
 
-  const { emisor, series, receptores, configs, tieneCsd } = contexto;
+  const { emisor, series, receptores, empleados, configs, tieneCsd } = contexto;
 
   const dias = tieneCsd ? diasRestantes(emisor.VigenciaCert) : null;
   const seriesInvalidas = series.filter((s) => !tipoSerie(s.Tipo).valido).length;
@@ -52,6 +52,10 @@ export default async function EmisorLayout({
   if (!tieneCsd || (dias !== null && dias < 30)) alertas.push("csd");
   if (seriesInvalidas > 0) alertas.push("series");
   if (receptores.some((r) => !r.Rfc?.trim())) alertas.push("receptores");
+  const empleadosIncompletos = empleados.filter(
+    (e) => !e.Curp?.trim() || !e.PeriodicidadPago?.trim() || !e.SalarioDiario
+  ).length;
+  if (empleadosIncompletos > 0) alertas.push("empleados");
 
   const kpis: HeroKpi[] = [
     {
@@ -68,6 +72,19 @@ export default async function EmisorLayout({
       meta: "clientes para facturar",
       section: "receptores",
       segment: "receptores",
+    },
+    {
+      label: "Empleados",
+      value: String(empleados.length),
+      meta:
+        empleadosIncompletos > 0
+          ? `${empleadosIncompletos} sin datos para timbrar`
+          : empleados.length
+            ? "listos para su recibo"
+            : "sin empleados dados de alta",
+      section: "empleados",
+      segment: "empleados",
+      tone: empleadosIncompletos > 0 ? "warn" : undefined,
     },
     {
       label: "Diseños PDF",
@@ -105,6 +122,7 @@ export default async function EmisorLayout({
           counts={{
             series: series.length,
             receptores: receptores.length,
+            empleados: empleados.length,
             disenos: configs.length,
           }}
           alertas={alertas}

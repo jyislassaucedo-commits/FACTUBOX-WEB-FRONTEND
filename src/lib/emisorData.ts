@@ -2,6 +2,7 @@ import { cache } from "react";
 import { existeCsd, getEmisor, type EmisorDetalle } from "@/lib/emisores";
 import { getSeries, type Serie } from "@/lib/series";
 import { getReceptores, type Receptor } from "@/lib/receptores";
+import { getEmpleados, type Empleado } from "@/lib/empleados";
 import { getConfigPdfs } from "@/lib/configPdf";
 import type { ConfigPdfForm } from "@/lib/configPdfShared";
 
@@ -9,6 +10,8 @@ export type EmisorContext = {
   emisor: EmisorDetalle;
   series: Serie[];
   receptores: Receptor[];
+  /** Solo los que siguen contratados: los dados de baja se piden aparte. */
+  empleados: Empleado[];
   configs: ConfigPdfForm[];
   tieneCsd: boolean;
 };
@@ -27,13 +30,14 @@ export const loadEmisorContext = cache(
     const emisor = await getEmisor(rfc);
     if (!emisor) return null;
 
-    const [series, receptores, configs, tieneCsd] = await Promise.all([
+    const [series, receptores, empleados, configs, tieneCsd] = await Promise.all([
       getSeries(rfc),
       getReceptores(rfc),
+      getEmpleados(rfc),
       getConfigPdfs(rfc),
       existeCsd(emisor.Token),
     ]);
 
-    return { emisor, series, receptores, configs, tieneCsd };
+    return { emisor, series, receptores, empleados, configs, tieneCsd };
   }
 );

@@ -15,6 +15,7 @@ export type EmisorSectionKey =
   | "csd"
   | "series"
   | "receptores"
+  | "empleados"
   | "disenos";
 
 export type EmisorSection = {
@@ -61,6 +62,13 @@ export const EMISOR_SECTIONS: EmisorSection[] = [
     segment: "receptores",
     label: "Receptores",
     description: "Clientes frecuentes para facturar",
+    group: "catalogos",
+  },
+  {
+    key: "empleados",
+    segment: "empleados",
+    label: "Empleados",
+    description: "Plantilla para los recibos de nómina",
     group: "catalogos",
   },
   {
