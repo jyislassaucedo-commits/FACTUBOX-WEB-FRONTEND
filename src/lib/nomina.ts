@@ -134,7 +134,11 @@ export async function deletePeriodo(rfcEmisor: string, id: string) {
 /** Lo que faltó calcular viene con nombre y motivo, no como un número. */
 export async function calcularNomina(
   rfcEmisor: string,
-  id: string
+  id: string,
+  /** Ids de los empleados elegidos. Sin esto se barre a todos los de la
+   *  periodicidad del periodo, que es lo que casi siempre se quiere pero no
+   *  siempre. */
+  empleados?: string[]
 ): Promise<
   PhpResponse<{
     Empleados: number;
@@ -145,7 +149,11 @@ export async function calcularNomina(
     Recibos: ReciboNomina[];
   }>
 > {
-  return llamar("calcularNominaV2.php", { RfcEmisor: rfcEmisor, Id: id });
+  return llamar("calcularNominaV2.php", {
+    RfcEmisor: rfcEmisor,
+    Id: id,
+    ...(empleados && empleados.length > 0 ? { Empleados: empleados.join(",") } : {}),
+  });
 }
 
 export async function saveIncidencia(rfcEmisor: string, idPeriodo: string, input: IncidenciaInput) {
@@ -254,4 +262,43 @@ export async function timbrarRecibo(
   return timbre.Error === "0"
     ? { ...base, ok: true, uuid: timbre.UUID }
     : { ...base, ok: false, error: timbre.DescripError };
+}
+
+/* -------------------------------------------------------------------------- */
+/* A quién le toca                                                            */
+/* -------------------------------------------------------------------------- */
+
+/** Un empleado como candidato a entrar en una corrida, con las banderas que
+ *  necesita la pantalla para proponer sin imponer. */
+export type CandidatoNomina = {
+  Id: string;
+  Rfc: string;
+  Nombre: string;
+  NumEmpleado: string;
+  Puesto: string;
+  PeriodicidadPago: string;
+  SalarioDiario: string | null;
+  FechaBaja: string | null;
+  /** Su periodicidad es la del periodo: son los que entrarían solos. */
+  Coincide: "0" | "1";
+  DadoDeBaja: "0" | "1";
+  YaTieneRecibo: "0" | "1";
+  Timbrado: "0" | "1";
+  Faltantes: { campo: string; mensaje: string }[];
+};
+
+export async function getCandidatos(rfcEmisor: string, idPeriodo: string) {
+  return llamar<{ Candidatos: CandidatoNomina[] }>("getCandidatosNominaV2.php", {
+    RfcEmisor: rfcEmisor,
+    IdPeriodo: idPeriodo,
+  });
+}
+
+/** Saca a alguien de la corrida. No borra sus incidencias. */
+export async function quitarRecibo(rfcEmisor: string, idPeriodo: string, idEmpleado: string) {
+  return llamar("deleteReciboNominaV2.php", {
+    RfcEmisor: rfcEmisor,
+    IdPeriodo: idPeriodo,
+    IdEmpleado: idEmpleado,
+  });
 }

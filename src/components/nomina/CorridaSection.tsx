@@ -10,6 +10,7 @@ import {
 import { dias, etiquetaPeriodicidad, pesos } from "@/lib/nominaShared";
 import { CorridaFormModal } from "./CorridaFormModal";
 import { IncidenciasModal } from "./IncidenciasModal";
+import { SelectorEmpleados } from "./SelectorEmpleados";
 import { EmpleadoFormModal } from "@/components/empleados/EmpleadoFormModal";
 import type { Empleado } from "@/lib/empleados";
 import type { IncidenciaNomina, PeriodoNomina, ReciboNomina } from "@/lib/nomina";
@@ -64,11 +65,32 @@ export function CorridaSection({
   const [editando, setEditando] = useState(false);
   const [borrando, setBorrando] = useState(false);
   const [completando, setCompletando] = useState<Empleado | null>(null);
+  const [eligiendo, setEligiendo] = useState(false);
+  const [quitando, setQuitando] = useState<string | null>(null);
 
   const pendientes = recibos.filter((r) => r.Estado !== "TIMBRADO");
   const timbrados = recibos.filter((r) => r.Estado === "TIMBRADO");
   const conError = recibos.filter((r) => r.Estado === "ERROR");
   const netoTotal = recibos.reduce((a, r) => a + (parseFloat(r.Neto) || 0), 0);
+
+  async function quitar(r: ReciboNomina) {
+    setQuitando(r.IdEmpleado);
+    try {
+      const res = await fetch(
+        `/api/empresas/${encodeURIComponent(rfc)}/nomina/${periodo.Id}/candidatos?idEmpleado=${encodeURIComponent(r.IdEmpleado)}`,
+        { method: "DELETE" }
+      );
+      const body = await res.json();
+      if (!res.ok) {
+        toast(body.error ?? "No se pudo sacar de la corrida", "danger");
+        return;
+      }
+      toast(`${r.Nombre} sale de esta corrida`);
+      router.refresh();
+    } finally {
+      setQuitando(null);
+    }
+  }
 
   async function borrar() {
     setBorrando(true);
@@ -88,11 +110,14 @@ export function CorridaSection({
     }
   }
 
-  async function calcular() {
+  async function calcular(empleados?: string[]) {
     setCalculando(true);
+    setEligiendo(false);
     try {
       const res = await fetch(`/api/empresas/${encodeURIComponent(rfc)}/nomina/${periodo.Id}/calcular`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(empleados ? { empleados } : {}),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -182,7 +207,7 @@ export function CorridaSection({
                   </Button>
                 </>
               )}
-              <Button variant="secondary" onClick={calcular} disabled={calculando || corriendo}>
+              <Button variant="secondary" onClick={() => setEligiendo(true)} disabled={calculando || corriendo}>
                 {calculando ? "Calculando…" : recibos.length ? "Recalcular" : "Correr nómina"}
               </Button>
               {pendientes.length > 0 && (
@@ -314,7 +339,7 @@ export function CorridaSection({
         <Note tone="warn" title="Hay cambios que no se han aplicado">
           Los recibos de abajo todavía son los de antes. Corre la nómina otra vez para que se
           reflejen.{" "}
-          <button type="button" onClick={calcular} disabled={calculando}
+          <button type="button" onClick={() => setEligiendo(true)} disabled={calculando}
             className="font-semibold underline underline-offset-2">
             {calculando ? "Recalculando…" : "Recalcular ahora"}
           </button>
@@ -328,7 +353,7 @@ export function CorridaSection({
             title="Todavía no se ha corrido"
             description="Al correrla entran los empleados activos con esta periodicidad, y a cada uno se le calcula su recibo."
             action={
-              <Button variant="primary" onClick={calcular} disabled={calculando}>
+              <Button variant="primary" onClick={() => setEligiendo(true)} disabled={calculando}>
                 {calculando ? "Calculando…" : "Correr nómina"}
               </Button>
             }
@@ -386,15 +411,28 @@ export function CorridaSection({
                         {(incidencias[r.IdEmpleado] ?? []).length || "—"}
                       </span>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => setIncidenciasDe(r)}
-                        className="text-[12.5px] font-semibold text-brand hover:underline"
-                      >
-                        {(incidencias[r.IdEmpleado] ?? []).length > 0
-                          ? `${(incidencias[r.IdEmpleado] ?? []).length} capturadas`
-                          : "Agregar"}
-                      </button>
+                      <span className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => setIncidenciasDe(r)}
+                          className="text-[12.5px] font-semibold text-brand hover:underline"
+                        >
+                          {(incidencias[r.IdEmpleado] ?? []).length > 0
+                            ? `${(incidencias[r.IdEmpleado] ?? []).length} capturadas`
+                            : "Agregar"}
+                        </button>
+                        {/* Sacarlo de esta corrida no lo borra ni toca sus
+                            incidencias: puede que solo no le toque cobrar hoy. */}
+                        <button
+                          type="button"
+                          onClick={() => quitar(r)}
+                          disabled={quitando === r.IdEmpleado}
+                          title="Sacarlo de esta corrida"
+                          className="text-[12px] text-ink-3 hover:text-danger disabled:opacity-50"
+                        >
+                          {quitando === r.IdEmpleado ? "…" : "Quitar"}
+                        </button>
+                      </span>
                     )}
                   </Td>
                 </tr>
@@ -419,6 +457,16 @@ export function CorridaSection({
           </CardBody>
         )}
       </Card>
+
+      {eligiendo && (
+        <SelectorEmpleados
+          rfc={rfc}
+          idPeriodo={periodo.Id}
+          periodicidad={periodo.Periodicidad}
+          onClose={() => setEligiendo(false)}
+          onCorrer={(ids) => calcular(ids)}
+        />
+      )}
 
       {editando && (
         <CorridaFormModal
