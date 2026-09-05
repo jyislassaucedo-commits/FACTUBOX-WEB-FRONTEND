@@ -3,7 +3,7 @@ import { Card, CardBody } from "@/components/ui";
 import { buttonClass } from "@/components/ui/styles";
 import { CorridaSection } from "@/components/nomina/CorridaSection";
 import { loadEmisorContext } from "@/lib/emisorData";
-import { getIncidencias, getPeriodo } from "@/lib/nomina";
+import { getIncidencias, getPeriodo, getPeriodosConNombres } from "@/lib/nomina";
 import { getRegistroPatronal } from "@/lib/empleados";
 
 export default async function CorridaPage({
@@ -17,10 +17,11 @@ export default async function CorridaPage({
   const contexto = await loadEmisorContext(rfc);
   if (!contexto) return null;
 
-  const [resp, inc, registroPatronal] = await Promise.all([
+  const [resp, inc, registroPatronal, lista] = await Promise.all([
     getPeriodo(rfc, id),
     getIncidencias(rfc, id),
     getRegistroPatronal(rfc),
+    getPeriodosConNombres(rfc),
   ]);
   // La union de PhpResponse solo se estrecha con esta comparacion sola: al
   // juntarla con otra condicion TypeScript deja de saber cual rama es.
@@ -53,6 +54,7 @@ export default async function CorridaPage({
       // Un recibo de nomina no puede llevar serie de ingreso: el SAT valida
       // que el tipo de la serie corresponda al del comprobante.
       series={contexto.series.filter((s) => s.Tipo === "N")}
+      nombres={lista.nombres}
     />
   );
 }

@@ -12,6 +12,9 @@ export type PeriodoNomina = {
   FechaFinalPago: string;
   FechaPago: string;
   DiasPagados: string;
+  /** Nombra la corrida que se repite ("Empleados especiales"). Sobrevive al
+   *  repetirla, a diferencia de Descripcion, que nombra este periodo. */
+  Nombre: string | null;
   Descripcion: string | null;
   Estado: "BORRADOR" | "CERRADO";
   /** Solo en la lista: los conteos que se preguntan el día de pago. */
@@ -75,6 +78,7 @@ export type PeriodoInput = {
   fechaFinalPago: string;
   fechaPago: string;
   diasPagados: string;
+  nombre?: string;
   descripcion?: string;
 };
 
@@ -103,12 +107,35 @@ async function llamar<T>(endpoint: string, params: Record<string, string>): Prom
   return callLegacyPhpApi<T>(`${RUTA}/${endpoint}`, { Token: session.token, ...params });
 }
 
+/**
+ * Un nombre de corrida que la empresa ya usa, con qué tan seguido.
+ *
+ * `Veces` llega como número con mysqlnd y como cadena sin él; sólo se pinta.
+ */
+export type NombreCorrida = { Nombre: string; Veces: string | number; Ultima: string };
+
 export async function getPeriodos(rfcEmisor: string): Promise<PeriodoNomina[]> {
-  const resp = await llamar<{ Periodos: PeriodoNomina[] }>("getPeriodosNominaV2.php", {
-    RfcEmisor: rfcEmisor,
-  });
-  if (resp.Error !== "0") return [];
-  return resp.Periodos ?? [];
+  return (await getPeriodosConNombres(rfcEmisor)).periodos;
+}
+
+/**
+ * Las corridas y los nombres que la empresa ya usa.
+ *
+ * Los nombres vienen del backend y no salen de recorrer `periodos`: la lista
+ * está acotada, así que un nombre usado sólo en corridas viejas se caería de
+ * las sugerencias justo cuando más falta hace recordarlo — y ahí es donde
+ * nacen "Especiales", "especiales" y "Empleados especiales" como tres corridas
+ * distintas.
+ */
+export async function getPeriodosConNombres(
+  rfcEmisor: string
+): Promise<{ periodos: PeriodoNomina[]; nombres: NombreCorrida[] }> {
+  const resp = await llamar<{ Periodos: PeriodoNomina[]; Nombres: NombreCorrida[] }>(
+    "getPeriodosNominaV2.php",
+    { RfcEmisor: rfcEmisor }
+  );
+  if (resp.Error !== "0") return { periodos: [], nombres: [] };
+  return { periodos: resp.Periodos ?? [], nombres: resp.Nombres ?? [] };
 }
 
 export async function getPeriodo(
@@ -140,6 +167,7 @@ export async function savePeriodo(
       FechaFinalPago: input.fechaFinalPago,
       FechaPago: input.fechaPago,
       DiasPagados: input.diasPagados,
+      Nombre: input.nombre ?? "",
       Descripcion: input.descripcion ?? "",
     }),
   });

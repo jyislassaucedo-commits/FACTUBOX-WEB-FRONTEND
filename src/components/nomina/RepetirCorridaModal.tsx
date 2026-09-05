@@ -11,6 +11,7 @@ type Previo = {
     FechaPago: string;
     DiasPagados: string;
     Periodicidad: string;
+    Nombre: string | null;
     Descripcion: string | null;
   };
   empleados: number;
@@ -177,7 +178,9 @@ export function RepetirCorridaModal({
       {previo && !resultado && (
         <div className="space-y-4">
           <div className="rounded-[11px] border border-line bg-surface-2 px-4 py-3">
-            <p className="text-[11.3px] uppercase tracking-wide text-ink-3">Periodo nuevo</p>
+            <p className="text-[11.3px] uppercase tracking-wide text-ink-3">
+              {previo.periodo.Nombre ? `Periodo nuevo · ${previo.periodo.Nombre}` : "Periodo nuevo"}
+            </p>
             <p className="mt-1 text-[15px] font-semibold text-ink">
               {previo.periodo.FechaInicialPago} al {previo.periodo.FechaFinalPago}
             </p>

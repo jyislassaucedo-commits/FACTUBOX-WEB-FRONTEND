@@ -5,7 +5,7 @@ import { inputClass } from "@/components/ui/styles";
 import {
   PERIODICIDADES_CORRIBLES, PERIODICIDAD_EXTRAORDINARIA, TIPOS_NOMINA, proponerPeriodo,
 } from "@/lib/nominaShared";
-import type { PeriodoNomina } from "@/lib/nomina";
+import type { NombreCorrida, PeriodoNomina } from "@/lib/nomina";
 
 /**
  * Alta de una corrida.
@@ -18,12 +18,15 @@ import type { PeriodoNomina } from "@/lib/nomina";
 export function CorridaFormModal({
   rfc,
   periodo,
+  nombres = [],
   onClose,
   onCreada,
 }: {
   rfc: string;
   /** Con periodo edita; sin él, crea. */
   periodo?: PeriodoNomina;
+  /** Los que la empresa ya usa, para reusarlos en vez de reescribirlos. */
+  nombres?: NombreCorrida[];
   onClose: () => void;
   onCreada: (id: string) => void;
 }) {
@@ -37,6 +40,7 @@ export function CorridaFormModal({
   const [diasPagados, setDiasPagados] = useState(
     periodo ? String(parseFloat(periodo.DiasPagados)) : propuesta.dias
   );
+  const [nombre, setNombre] = useState(periodo?.Nombre ?? "");
   const [descripcion, setDescripcion] = useState(periodo?.Descripcion ?? "");
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
@@ -67,7 +71,9 @@ export function CorridaFormModal({
         body: JSON.stringify({
           tipoNomina, periodicidad,
           fechaInicialPago: inicio, fechaFinalPago: fin, fechaPago: pago,
-          diasPagados, descripcion: descripcion.trim() || undefined,
+          diasPagados,
+          nombre: nombre.trim() || undefined,
+          descripcion: descripcion.trim() || undefined,
         }),
       }
       );
@@ -105,6 +111,50 @@ export function CorridaFormModal({
         </div>
 
         <form onSubmit={guardar} className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink-2">
+              Nombre de la corrida (opcional)
+            </label>
+            <input
+              className={inputClass}
+              value={nombre}
+              list="nombres-corrida"
+              maxLength={80}
+              placeholder="Ej. Quincenal oficina, Empleados especiales, Mensuales"
+              onChange={(e) => setNombre(e.target.value)}
+            />
+            <datalist id="nombres-corrida">
+              {nombres.map((n) => (
+                <option key={n.Nombre} value={n.Nombre} />
+              ))}
+            </datalist>
+            {nombres.length > 0 && (
+              // Los que ya usa, de un clic. El datalist sólo se abre si uno
+              // sabe que está ahí; estos se ven, y son lo que evita que la
+              // misma corrida se llame distinto cada quincena.
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {nombres.map((n) => (
+                  <button
+                    key={n.Nombre}
+                    type="button"
+                    onClick={() => setNombre(n.Nombre)}
+                    className={`rounded-full border px-2.5 py-1 text-[11.5px] transition ${
+                      nombre === n.Nombre
+                        ? "border-brand bg-brand/10 font-semibold text-brand"
+                        : "border-line text-ink-2 hover:bg-surface-2"
+                    }`}
+                  >
+                    {n.Nombre}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="mt-1 text-[11px] text-ink-3">
+              Para distinguirla de las demás cuando corres varias nóminas a la vez. Se conserva al
+              repetirla; la descripción de abajo no.
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-2">Tipo</label>
@@ -162,7 +212,9 @@ export function CorridaFormModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-ink-2">Descripción (opcional)</label>
+            <label className="mb-1 block text-xs font-medium text-ink-2">
+              Descripción de este periodo (opcional)
+            </label>
             <input className={inputClass} value={descripcion} placeholder="Ej. Primera quincena de agosto" onChange={(e) => setDescripcion(e.target.value)} />
           </div>
 

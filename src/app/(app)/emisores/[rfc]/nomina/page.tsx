@@ -1,6 +1,6 @@
 import { NominaSection } from "@/components/nomina/NominaSection";
 import { loadEmisorContext } from "@/lib/emisorData";
-import { getPeriodos } from "@/lib/nomina";
+import { getPeriodosConNombres } from "@/lib/nomina";
 
 export default async function NominaPage({
   params,
@@ -13,10 +13,13 @@ export default async function NominaPage({
   const contexto = await loadEmisorContext(rfc);
   if (!contexto) return null;
 
+  const { periodos, nombres } = await getPeriodosConNombres(rfc);
+
   return (
     <NominaSection
       rfc={rfc}
-      periodos={await getPeriodos(rfc)}
+      periodos={periodos}
+      nombres={nombres}
       empleadosActivos={contexto.empleados.length}
     />
   );

@@ -10,7 +10,30 @@ import {
 import { dias, etiquetaPeriodicidad, pesos } from "@/lib/nominaShared";
 import { CorridaFormModal } from "./CorridaFormModal";
 import { RepetirCorridaModal } from "./RepetirCorridaModal";
-import type { PeriodoNomina } from "@/lib/nomina";
+import type { NombreCorrida, PeriodoNomina } from "@/lib/nomina";
+
+/**
+ * Qué corridas se están viendo.
+ *
+ * `null` es "las que nadie nombró", que no es lo mismo que "todas" ni un
+ * nombre vacío. Un centinela de cadena chocaría el día que alguien bautice su
+ * corrida justo así.
+ */
+type Filtro = { tipo: "todas" } | { tipo: "sin-nombre" } | { tipo: "nombre"; nombre: string };
+
+function coincide(p: PeriodoNomina, f: Filtro) {
+  if (f.tipo === "todas") return true;
+  if (f.tipo === "sin-nombre") return !p.Nombre;
+  return p.Nombre === f.nombre;
+}
+
+function chipClass(activo: boolean) {
+  return `rounded-full border px-3 py-1 text-[12px] transition ${
+    activo
+      ? "border-brand bg-brand/10 font-semibold text-brand"
+      : "border-line text-ink-2 hover:bg-surface-2"
+  }`;
+}
 
 /**
  * Las corridas de nómina del emisor.
@@ -18,14 +41,22 @@ import type { PeriodoNomina } from "@/lib/nomina";
  * Cada renglón dice cuántos recibos lleva, cuántos van timbrados y cuántos
  * tronaron, porque esa es la pregunta del día de pago. "Quincena de agosto" no
  * le sirve a nadie; "faltan 3" sí.
+ *
+ * Una empresa suele correr varias nóminas en paralelo, así que cada corrida
+ * lleva nombre y la lista se puede filtrar por él: con la quincena de oficina y
+ * la de los especiales en las mismas fechas, sin nombre no hay forma de saber
+ * cuál es cuál sin abrirlas.
  */
 export function NominaSection({
   rfc,
   periodos,
+  nombres = [],
   empleadosActivos,
 }: {
   rfc: string;
   periodos: PeriodoNomina[];
+  /** Los nombres que la empresa ya usa, para reusarlos al crear la siguiente. */
+  nombres?: NombreCorrida[];
   /** Para avisar antes de que alguien cree una corrida sin a quién pagarle. */
   empleadosActivos: number;
 }) {
@@ -33,12 +64,31 @@ export function NominaSection({
   const toast = useToast();
   const [abierto, setAbierto] = useState(false);
   const [repetir, setRepetir] = useState<string | null>(null);
+  const [filtro, setFiltro] = useState<Filtro>({ tipo: "todas" });
 
-  // La corrida que se puede repetir de un clic: la ordinaria más reciente que
-  // ya se corrió. Sin recibos no hay a quién repetirle. Y ordinaria a
-  // propósito: un aguinaldo no tiene "periodo siguiente", y ofrecerlo como
-  // atajo principal sería empujar justo lo que no se debe repetir.
-  const ultima = periodos.find((p) => p.TipoNomina !== "E" && Number(p.Recibos ?? 0) > 0) ?? null;
+  /**
+   * La última corrida repetible de cada nombre.
+   *
+   * Una por nombre y no una sola: quien corre la quincena de oficina, la semana
+   * de los de raya y un puñado de especiales tiene tres nóminas que repetir, no
+   * una. Con un solo atajo, dos de las tres se arman a mano cada vez.
+   *
+   * Ordinarias nada más: un aguinaldo no tiene periodo siguiente. Y con
+   * recibos, porque sin ellos no hay a quién repetirle.
+   */
+  const repetibles: PeriodoNomina[] = [];
+  const vistos = new Set<string | null>();
+  for (const p of periodos) {
+    if (p.TipoNomina === "E" || Number(p.Recibos ?? 0) === 0) continue;
+    const clave = p.Nombre ?? null;
+    if (vistos.has(clave)) continue;
+    vistos.add(clave);
+    repetibles.push(p);
+  }
+
+  const visibles = periodos.filter((p) => coincide(p, filtro));
+  const hayNombres = nombres.length > 0;
+  const haySinNombre = periodos.some((p) => !p.Nombre);
 
   return (
     <div className="space-y-4">
@@ -52,19 +102,35 @@ export function NominaSection({
         </Note>
       )}
 
-      {ultima && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[13px] border border-brand/25 bg-brand/[0.06] px-4 py-3.5">
-          <div className="min-w-0">
-            <p className="text-[13.3px] font-semibold text-ink">¿La misma nómina otra vez?</p>
-            <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-2">
-              La última fue del {ultima.FechaInicialPago} al {ultima.FechaFinalPago}, con {ultima.Recibos}{" "}
-              {Number(ultima.Recibos) === 1 ? "recibo" : "recibos"}. Repetirla te deja el periodo siguiente
-              listo: la misma gente y ya calculado.
-            </p>
+      {repetibles.length > 0 && (
+        <div className="rounded-[13px] border border-brand/25 bg-brand/[0.06] px-4 py-3.5">
+          <p className="text-[13.3px] font-semibold text-ink">
+            {repetibles.length === 1 ? "¿La misma nómina otra vez?" : "¿Las mismas nóminas otra vez?"}
+          </p>
+          <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-2">
+            Repetir una te deja el periodo siguiente listo: la misma gente y ya calculado.
+          </p>
+
+          <div className="mt-2.5 space-y-1.5">
+            {repetibles.map((p) => (
+              <div
+                key={p.Id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] bg-surface/60 px-3 py-2"
+              >
+                <div className="min-w-0 text-[12.5px] text-ink-2">
+                  <span className="font-semibold text-ink">{p.Nombre || "Sin nombre"}</span>
+                  <span className="text-ink-3">
+                    {" "}
+                    · última del {p.FechaInicialPago} al {p.FechaFinalPago}, {p.Recibos}{" "}
+                    {Number(p.Recibos) === 1 ? "recibo" : "recibos"}
+                  </span>
+                </div>
+                <Button variant="primary" size="sm" onClick={() => setRepetir(String(p.Id))}>
+                  Repetir
+                </Button>
+              </div>
+            ))}
           </div>
-          <Button variant="primary" onClick={() => setRepetir(String(ultima.Id))}>
-            Repetir la última
-          </Button>
         </div>
       )}
 
@@ -79,6 +145,39 @@ export function NominaSection({
           }
         />
 
+        {/* El filtro sólo aparece cuando hay algo que separar. Con una sola
+            corrida es un control que no hace nada y estorba. */}
+        {hayNombres && (
+          <CardBody className="flex flex-wrap items-center gap-1.5 border-b border-line-2">
+            <button
+              type="button"
+              onClick={() => setFiltro({ tipo: "todas" })}
+              className={chipClass(filtro.tipo === "todas")}
+            >
+              Todas ({periodos.length})
+            </button>
+            {nombres.map((n) => (
+              <button
+                key={n.Nombre}
+                type="button"
+                onClick={() => setFiltro({ tipo: "nombre", nombre: n.Nombre })}
+                className={chipClass(filtro.tipo === "nombre" && filtro.nombre === n.Nombre)}
+              >
+                {n.Nombre} ({n.Veces})
+              </button>
+            ))}
+            {haySinNombre && (
+              <button
+                type="button"
+                onClick={() => setFiltro({ tipo: "sin-nombre" })}
+                className={chipClass(filtro.tipo === "sin-nombre")}
+              >
+                Sin nombre ({periodos.filter((p) => !p.Nombre).length})
+              </button>
+            )}
+          </CardBody>
+        )}
+
         {periodos.length === 0 ? (
           <EmptyState
             title="Sin corridas todavía"
@@ -89,11 +188,22 @@ export function NominaSection({
               </Button>
             }
           />
+        ) : visibles.length === 0 ? (
+          <EmptyState
+            title="Nada con ese nombre"
+            description="Hay corridas, pero ninguna de las que estás filtrando."
+            action={
+              <Button variant="secondary" onClick={() => setFiltro({ tipo: "todas" })}>
+                Ver todas
+              </Button>
+            }
+          />
         ) : (
           <Table>
             <thead>
               <tr>
                 <Th>Periodo</Th>
+                <Th>Corrida</Th>
                 <Th>Se paga</Th>
                 <Th>Tipo</Th>
                 <Th className="text-right">Recibos</Th>
@@ -103,7 +213,7 @@ export function NominaSection({
               </tr>
             </thead>
             <tbody>
-              {periodos.map((p) => {
+              {visibles.map((p) => {
                 const recibos = Number(p.Recibos ?? 0);
                 const timbrados = Number(p.Timbrados ?? 0);
                 const conError = Number(p.ConError ?? 0);
@@ -117,6 +227,20 @@ export function NominaSection({
                       <span className="block text-[11.3px] text-ink-3">
                         {p.Descripcion || `${etiquetaPeriodicidad(p.Periodicidad)}, ${dias(p.DiasPagados)} días`}
                       </span>
+                    </Td>
+                    <Td>
+                      {p.Nombre ? (
+                        <button
+                          type="button"
+                          onClick={() => setFiltro({ tipo: "nombre", nombre: p.Nombre! })}
+                          className="text-[12.5px] font-medium text-ink-2 transition hover:text-brand hover:underline"
+                          title={`Ver sólo las de ${p.Nombre}`}
+                        >
+                          {p.Nombre}
+                        </button>
+                      ) : (
+                        <span className="text-[12.5px] text-ink-3">—</span>
+                      )}
                     </Td>
                     <Td className="text-[12.5px] text-ink-2">{p.FechaPago}</Td>
                     <Td>
@@ -192,6 +316,7 @@ export function NominaSection({
       {abierto && (
         <CorridaFormModal
           rfc={rfc}
+          nombres={nombres}
           onClose={() => setAbierto(false)}
           onCreada={(id) => {
             setAbierto(false);

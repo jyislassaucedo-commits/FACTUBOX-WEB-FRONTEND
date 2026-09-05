@@ -14,7 +14,7 @@ import { SelectorEmpleados } from "./SelectorEmpleados";
 import { RepetirCorridaModal } from "./RepetirCorridaModal";
 import { EmpleadoFormModal } from "@/components/empleados/EmpleadoFormModal";
 import type { Empleado } from "@/lib/empleados";
-import type { ConceptoRecibo, IncidenciaNomina, PeriodoNomina, ReciboNomina } from "@/lib/nomina";
+import type { ConceptoRecibo, IncidenciaNomina, NombreCorrida, PeriodoNomina, ReciboNomina } from "@/lib/nomina";
 import type { Serie } from "@/lib/series";
 
 type Omitido = { IdEmpleado: string; Nombre: string; Motivo: string };
@@ -38,6 +38,7 @@ export function CorridaSection({
   empleados,
   registroPatronal,
   series,
+  nombres = [],
 }: {
   rfc: string;
   emisorToken: string;
@@ -52,6 +53,8 @@ export function CorridaSection({
   registroPatronal: string;
   /** Solo las de tipo N: un recibo de nómina no puede llevar serie de ingreso. */
   series: Serie[];
+  /** Los nombres de corrida que ya usa la empresa, para el modal de edición. */
+  nombres?: NombreCorrida[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -193,13 +196,26 @@ export function CorridaSection({
         </Link>
         <span aria-hidden> / </span>
         <span className="font-medium text-ink-2">
+          {/* Con dos corridas de las mismas fechas, la miga sin nombre no dice
+              en cuál de las dos estás. */}
+          {periodo.Nombre ? `${periodo.Nombre} · ` : ""}
           {periodo.FechaInicialPago} al {periodo.FechaFinalPago}
         </span>
       </nav>
 
       <Card>
         <CardHeader
-          title={periodo.Descripcion || `${etiquetaPeriodicidad(periodo.Periodicidad)} del ${periodo.FechaInicialPago} al ${periodo.FechaFinalPago}`}
+          title={
+            <span className="flex flex-wrap items-center gap-2">
+              {/* El nombre primero y como pastilla: es lo que distingue esta
+                  corrida de la otra de las mismas fechas. */}
+              {periodo.Nombre && <Pill tone="brand">{periodo.Nombre}</Pill>}
+              <span>
+                {periodo.Descripcion ||
+                  `${etiquetaPeriodicidad(periodo.Periodicidad)} del ${periodo.FechaInicialPago} al ${periodo.FechaFinalPago}`}
+              </span>
+            </span>
+          }
           description={`Se paga el ${periodo.FechaPago} · ${dias(periodo.DiasPagados)} días · ${periodo.TipoNomina === "O" ? "ordinaria" : "extraordinaria"}`}
           action={
             <div className="flex items-center gap-2">
@@ -558,6 +574,7 @@ export function CorridaSection({
         <CorridaFormModal
           rfc={rfc}
           periodo={periodo}
+          nombres={nombres}
           onClose={() => setEditando(false)}
           onCreada={() => {
             setEditando(false);
