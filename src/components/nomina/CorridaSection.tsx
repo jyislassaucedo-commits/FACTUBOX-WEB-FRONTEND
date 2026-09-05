@@ -347,7 +347,20 @@ export function CorridaSection({
       )}
 
       <Card>
-        <CardHeader title="Recibos" description="Lo que le toca cobrar a cada quien en este periodo." />
+        <CardHeader
+          title="Recibos"
+          description="Lo que le toca cobrar a cada quien en este periodo."
+          action={
+            recibos.length > 0 && periodo.Estado !== "CERRADO" ? (
+              // Junto a los "Quitar" de cada renglón: agregar y quitar son la
+              // misma decisión en dos sentidos, y esconder una detrás de
+              // "Recalcular" deja a quien quitó a alguien por error sin salida.
+              <Button variant="secondary" onClick={() => setEligiendo(true)} disabled={calculando || corriendo}>
+                Agregar empleados
+              </Button>
+            ) : undefined
+          }
+        />
         {recibos.length === 0 ? (
           <EmptyState
             title="Todavía no se ha corrido"

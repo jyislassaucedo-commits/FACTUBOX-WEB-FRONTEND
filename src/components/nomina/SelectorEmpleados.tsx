@@ -43,15 +43,23 @@ export function SelectorEmpleados({
         if (!vivo) return;
         const lista: CandidatoNomina[] = body.candidatos ?? [];
         setCandidatos(lista);
-        // Preseleccionados: los de esta periodicidad que siguen activos, más
-        // quien ya esté en la corrida. No los timbrados: esos ya no se tocan.
+
+        // Con la corrida ya armada, lo preseleccionado es QUIEN ESTÁ EN ELLA,
+        // no el barrido por periodicidad. Si no, quitar a alguien no serviría
+        // de nada: al volver a abrir aparecería marcado otra vez y volvería a
+        // entrar, deshaciendo la decisión sin avisar.
+        //
+        // Solo la primera vez, cuando no hay nadie, se propone el barrido.
+        const yaArmada = lista.some((c) => c.YaTieneRecibo === "1");
         setElegidos(
           new Set(
             lista
-              .filter(
-                (c) =>
-                  c.Timbrado === "0" &&
-                  (c.YaTieneRecibo === "1" || (c.Coincide === "1" && c.DadoDeBaja === "0"))
+              .filter((c) =>
+                c.Timbrado === "1"
+                  ? false
+                  : yaArmada
+                    ? c.YaTieneRecibo === "1"
+                    : c.Coincide === "1" && c.DadoDeBaja === "0"
               )
               .map((c) => c.Id)
           )
@@ -82,6 +90,7 @@ export function SelectorEmpleados({
   }
 
   const listos = filtrados.filter((c) => c.Timbrado === "0");
+  const yaArmada = (candidatos ?? []).some((c) => c.YaTieneRecibo === "1");
   const todosMarcados = listos.length > 0 && listos.every((c) => elegidos.has(c.Id));
 
   return (
@@ -92,8 +101,9 @@ export function SelectorEmpleados({
           <div>
             <h2 className="text-sm font-semibold text-ink">¿A quién le toca?</h2>
             <p className="mt-0.5 text-[12px] text-ink-3">
-              Vienen marcados los de periodicidad {etiquetaPeriodicidad(periodicidad).toLowerCase()}.
-              Puedes incluir a cualquier otro o quitar a quien no cobre esta vez.
+              {yaArmada
+                ? "Vienen marcados los que ya están en la corrida. Marca a quien quieras agregar o desmarca a quien no cobre esta vez."
+                : `Vienen marcados los de periodicidad ${etiquetaPeriodicidad(periodicidad).toLowerCase()}. Puedes incluir a cualquier otro o quitar a quien no cobre esta vez.`}
             </p>
           </div>
           <button type="button" onClick={onClose} className="text-sm text-ink-3 hover:text-ink">
@@ -153,6 +163,9 @@ export function SelectorEmpleados({
                           </span>
                         )}
                         {bloqueado && <Pill tone="ok">timbrado</Pill>}
+                        {!bloqueado && c.YaTieneRecibo === "1" && (
+                          <Pill tone="teal">en la corrida</Pill>
+                        )}
                         {!bloqueado && c.DadoDeBaja === "1" && <Pill tone="neutral">de baja</Pill>}
                         {!bloqueado && c.Coincide === "0" && (
                           <Pill tone="info" title={`Su nómina es ${etiquetaPeriodicidad(c.PeriodicidadPago).toLowerCase()}`}>
@@ -175,8 +188,10 @@ export function SelectorEmpleados({
 
         <div className="flex items-center justify-between gap-3 border-t border-line px-5 py-3.5">
           <p className="text-[12px] text-ink-3">
-            {elegidos.size} {elegidos.size === 1 ? "empleado elegido" : "empleados elegidos"}. A quien
-            no marques no se le toca el recibo que ya tuviera.
+            {elegidos.size} {elegidos.size === 1 ? "empleado elegido" : "empleados elegidos"}.
+            {yaArmada
+              ? " A quien desmarques hay que quitarlo desde su renglón; aquí solo se agrega y se recalcula."
+              : " A quien no marques no se le toca el recibo que ya tuviera."}
           </p>
           <div className="flex gap-2">
             <button type="button" onClick={onClose}
@@ -185,7 +200,7 @@ export function SelectorEmpleados({
             </button>
             <Button variant="primary" disabled={elegidos.size === 0}
               onClick={() => onCorrer([...elegidos])}>
-              Correr para {elegidos.size}
+              {yaArmada ? `Aplicar a ${elegidos.size}` : `Correr para ${elegidos.size}`}
             </Button>
           </div>
         </div>
