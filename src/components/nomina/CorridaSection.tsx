@@ -8,7 +8,8 @@ import {
   Table, Td, Th, useToast,
 } from "@/components/ui";
 import { dias, etiquetaPeriodicidad, pesos } from "@/lib/nominaShared";
-import type { PeriodoNomina, ReciboNomina } from "@/lib/nomina";
+import { IncidenciasModal } from "./IncidenciasModal";
+import type { IncidenciaNomina, PeriodoNomina, ReciboNomina } from "@/lib/nomina";
 import type { Serie } from "@/lib/series";
 
 type Omitido = { Nombre: string; Motivo: string };
@@ -27,12 +28,15 @@ export function CorridaSection({
   emisorToken,
   periodo,
   recibos,
+  incidencias,
   series,
 }: {
   rfc: string;
   emisorToken: string;
   periodo: PeriodoNomina;
   recibos: ReciboNomina[];
+  /** Lo que se capturó de cada quien en este periodo, por id de empleado. */
+  incidencias: Record<string, IncidenciaNomina[]>;
   /** Solo las de tipo N: un recibo de nómina no puede llevar serie de ingreso. */
   series: Serie[];
 }) {
@@ -44,6 +48,11 @@ export function CorridaSection({
   const [omitidos, setOmitidos] = useState<Omitido[]>([]);
   const [avisos, setAvisos] = useState<AvisoCalculo[]>([]);
   const [avance, setAvance] = useState<Avance | null>(null);
+  const [incidenciasDe, setIncidenciasDe] = useState<ReciboNomina | null>(null);
+  /** Se enciende al capturar algo: el recibo que se ve ya no corresponde a lo
+   *  capturado hasta que se vuelva a correr, y callarlo sería dejar timbrar un
+   *  recibo viejo. */
+  const [porRecalcular, setPorRecalcular] = useState(false);
 
   const pendientes = recibos.filter((r) => r.Estado !== "TIMBRADO");
   const timbrados = recibos.filter((r) => r.Estado === "TIMBRADO");
@@ -63,6 +72,7 @@ export function CorridaSection({
       }
       setOmitidos(body.omitidos ?? []);
       setAvisos(body.avisos ?? []);
+      setPorRecalcular(false);
       if (body.nota) toast(body.nota, "danger");
       else toast(`${(body.calculados ?? []).length} recibos calculados`);
       router.refresh();
@@ -240,6 +250,17 @@ export function CorridaSection({
         </Note>
       )}
 
+      {porRecalcular && (
+        <Note tone="warn" title="Hay incidencias capturadas que no se han aplicado">
+          Los recibos de abajo todavía son los de antes. Corre la nómina otra vez para que se
+          reflejen.{" "}
+          <button type="button" onClick={calcular} disabled={calculando}
+            className="font-semibold underline underline-offset-2">
+            {calculando ? "Recalculando…" : "Recalcular ahora"}
+          </button>
+        </Note>
+      )}
+
       <Card>
         <CardHeader title="Recibos" description="Lo que le toca cobrar a cada quien en este periodo." />
         {recibos.length === 0 ? (
@@ -263,6 +284,7 @@ export function CorridaSection({
                 <Th className="text-right">Subsidio</Th>
                 <Th className="text-right">Neto</Th>
                 <Th>Estado</Th>
+                <Th className="w-32">Incidencias</Th>
               </tr>
             </thead>
             <tbody>
@@ -296,6 +318,25 @@ export function CorridaSection({
                       <Pill tone="neutral">por timbrar</Pill>
                     )}
                   </Td>
+                  <Td>
+                    {/* Un recibo timbrado ya no admite cambios: lo que hay que
+                        corregir es el CFDI ante el SAT, no la captura. */}
+                    {r.Estado === "TIMBRADO" ? (
+                      <span className="text-[12px] text-ink-3">
+                        {(incidencias[r.IdEmpleado] ?? []).length || "—"}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setIncidenciasDe(r)}
+                        className="text-[12.5px] font-semibold text-brand hover:underline"
+                      >
+                        {(incidencias[r.IdEmpleado] ?? []).length > 0
+                          ? `${(incidencias[r.IdEmpleado] ?? []).length} capturadas`
+                          : "Agregar"}
+                      </button>
+                    )}
+                  </Td>
                 </tr>
               ))}
             </tbody>
@@ -318,6 +359,23 @@ export function CorridaSection({
           </CardBody>
         )}
       </Card>
+
+      {incidenciasDe && (
+        <IncidenciasModal
+          rfc={rfc}
+          idPeriodo={periodo.Id}
+          idEmpleado={incidenciasDe.IdEmpleado}
+          nombre={incidenciasDe.Nombre}
+          iniciales={incidencias[incidenciasDe.IdEmpleado] ?? []}
+          onClose={(huboCambios) => {
+            setIncidenciasDe(null);
+            if (huboCambios) {
+              setPorRecalcular(true);
+              router.refresh();
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
