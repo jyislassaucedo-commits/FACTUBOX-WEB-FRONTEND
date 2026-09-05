@@ -8,11 +8,14 @@ import {
   Table, Td, Th, useToast,
 } from "@/components/ui";
 import { dias, etiquetaPeriodicidad, pesos } from "@/lib/nominaShared";
+import { CorridaFormModal } from "./CorridaFormModal";
 import { IncidenciasModal } from "./IncidenciasModal";
+import { EmpleadoFormModal } from "@/components/empleados/EmpleadoFormModal";
+import type { Empleado } from "@/lib/empleados";
 import type { IncidenciaNomina, PeriodoNomina, ReciboNomina } from "@/lib/nomina";
 import type { Serie } from "@/lib/series";
 
-type Omitido = { Nombre: string; Motivo: string };
+type Omitido = { IdEmpleado: string; Nombre: string; Motivo: string };
 type AvisoCalculo = { Nombre: string; Aviso: string };
 
 /** Lo que va pasando durante el timbrado, para pintarlo mientras corre. */
@@ -29,6 +32,8 @@ export function CorridaSection({
   periodo,
   recibos,
   incidencias,
+  empleados,
+  registroPatronal,
   series,
 }: {
   rfc: string;
@@ -37,6 +42,9 @@ export function CorridaSection({
   recibos: ReciboNomina[];
   /** Lo que se capturó de cada quien en este periodo, por id de empleado. */
   incidencias: Record<string, IncidenciaNomina[]>;
+  /** Para poder completarle los datos a quien quedó fuera sin salir de aquí. */
+  empleados: Empleado[];
+  registroPatronal: string;
   /** Solo las de tipo N: un recibo de nómina no puede llevar serie de ingreso. */
   series: Serie[];
 }) {
@@ -53,11 +61,32 @@ export function CorridaSection({
    *  capturado hasta que se vuelva a correr, y callarlo sería dejar timbrar un
    *  recibo viejo. */
   const [porRecalcular, setPorRecalcular] = useState(false);
+  const [editando, setEditando] = useState(false);
+  const [borrando, setBorrando] = useState(false);
+  const [completando, setCompletando] = useState<Empleado | null>(null);
 
   const pendientes = recibos.filter((r) => r.Estado !== "TIMBRADO");
   const timbrados = recibos.filter((r) => r.Estado === "TIMBRADO");
   const conError = recibos.filter((r) => r.Estado === "ERROR");
   const netoTotal = recibos.reduce((a, r) => a + (parseFloat(r.Neto) || 0), 0);
+
+  async function borrar() {
+    setBorrando(true);
+    try {
+      const res = await fetch(`/api/empresas/${encodeURIComponent(rfc)}/nomina/${periodo.Id}`, {
+        method: "DELETE",
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        toast(body.error ?? "No se pudo borrar la corrida", "danger");
+        return;
+      }
+      toast("Corrida borrada");
+      router.push(`/emisores/${encodeURIComponent(rfc)}/nomina`);
+    } finally {
+      setBorrando(false);
+    }
+  }
 
   async function calcular() {
     setCalculando(true);
@@ -143,6 +172,16 @@ export function CorridaSection({
           description={`Se paga el ${periodo.FechaPago} · ${dias(periodo.DiasPagados)} días · ${periodo.TipoNomina === "O" ? "ordinaria" : "extraordinaria"}`}
           action={
             <div className="flex items-center gap-2">
+              {periodo.Estado === "BORRADOR" && timbrados.length === 0 && (
+                <>
+                  <Button variant="ghost" onClick={() => setEditando(true)} disabled={corriendo}>
+                    Editar
+                  </Button>
+                  <Button variant="ghost" onClick={borrar} disabled={borrando || corriendo}>
+                    {borrando ? "Borrando…" : "Borrar"}
+                  </Button>
+                </>
+              )}
               <Button variant="secondary" onClick={calcular} disabled={calculando || corriendo}>
                 {calculando ? "Calculando…" : recibos.length ? "Recalcular" : "Correr nómina"}
               </Button>
@@ -232,11 +271,32 @@ export function CorridaSection({
 
       {omitidos.length > 0 && (
         <Note tone="warn" title={`${omitidos.length} empleados quedaron fuera de la corrida`}>
-          <ul className="mt-1 space-y-1">
-            {omitidos.map((o, i) => (
-              <li key={o.Nombre + i}>· <span className="font-medium">{o.Nombre}</span>: {o.Motivo}</li>
-            ))}
+          <ul className="mt-1 space-y-1.5">
+            {omitidos.map((o, i) => {
+              // Casi siempre es que les falta un dato. Se completa aquí mismo:
+              // mandar a otra pantalla y que vuelvan a buscar la corrida es
+              // pedirles que se acuerden de dónde estaban.
+              const emp = empleados.find((e) => String(e.Id) === String(o.IdEmpleado));
+              return (
+                <li key={o.Nombre + i} className="flex flex-wrap items-baseline gap-x-2">
+                  <span>· <span className="font-medium">{o.Nombre}</span>: {o.Motivo}</span>
+                  {emp && (
+                    <button type="button" onClick={() => setCompletando(emp)}
+                      className="font-semibold underline underline-offset-2">
+                      Completar datos
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
+          <p className="mt-2 opacity-80">
+            ¿Falta alguien que ni siquiera aparece aquí? Dalo de alta en{" "}
+            <Link href={`/emisores/${encodeURIComponent(rfc)}/empleados`} className="font-semibold underline">
+              Empleados
+            </Link>{" "}
+            y vuelve a correr la nómina.
+          </p>
         </Note>
       )}
 
@@ -251,7 +311,7 @@ export function CorridaSection({
       )}
 
       {porRecalcular && (
-        <Note tone="warn" title="Hay incidencias capturadas que no se han aplicado">
+        <Note tone="warn" title="Hay cambios que no se han aplicado">
           Los recibos de abajo todavía son los de antes. Corre la nómina otra vez para que se
           reflejen.{" "}
           <button type="button" onClick={calcular} disabled={calculando}
@@ -359,6 +419,35 @@ export function CorridaSection({
           </CardBody>
         )}
       </Card>
+
+      {editando && (
+        <CorridaFormModal
+          rfc={rfc}
+          periodo={periodo}
+          onClose={() => setEditando(false)}
+          onCreada={() => {
+            setEditando(false);
+            toast("Corrida actualizada. Vuelve a correrla para aplicar las fechas nuevas.");
+            setPorRecalcular(true);
+            router.refresh();
+          }}
+        />
+      )}
+
+      {completando && (
+        <EmpleadoFormModal
+          rfcEmisor={rfc}
+          empleado={completando}
+          registroPatronalEmpresa={registroPatronal}
+          onClose={() => setCompletando(null)}
+          onSaved={() => {
+            setCompletando(null);
+            toast("Datos guardados. Vuelve a correr la nómina para incluirlo.");
+            setPorRecalcular(true);
+            router.refresh();
+          }}
+        />
+      )}
 
       {incidenciasDe && (
         <IncidenciasModal
