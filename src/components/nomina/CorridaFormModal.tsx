@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { inputClass } from "@/components/ui/styles";
 import {
-  PERIODICIDADES_CORRIBLES, TIPOS_NOMINA, proponerPeriodo,
+  PERIODICIDADES_CORRIBLES, PERIODICIDAD_EXTRAORDINARIA, TIPOS_NOMINA, proponerPeriodo,
 } from "@/lib/nominaShared";
 import type { PeriodoNomina } from "@/lib/nomina";
 
@@ -94,7 +94,9 @@ export function CorridaFormModal({
             <p className="mt-0.5 text-[12px] text-ink-3">
               {editando
                 ? "Al guardar hay que volver a correr la nómina para que los recibos usen las fechas nuevas."
-                : "Entran los empleados activos con esta periodicidad."}
+                : tipoNomina === "E"
+                  ? "No paga el sueldo del periodo: solo lo que captures, como el aguinaldo."
+                  : "Entran los empleados activos con esta periodicidad."}
             </p>
           </div>
           <button type="button" onClick={onClose} className="text-sm text-ink-3 hover:text-ink">
@@ -106,7 +108,14 @@ export function CorridaFormModal({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-2">Tipo</label>
-              <select className={inputClass} value={tipoNomina} onChange={(e) => setTipoNomina(e.target.value)}>
+              <select className={inputClass} value={tipoNomina}
+                onChange={(e) => {
+                  setTipoNomina(e.target.value);
+                  // El SAT exige periodicidad 99 en una extraordinaria: el pago
+                  // no corresponde a un periodo. Se pone sola porque dejar que
+                  // alguien elija otra es dejar que se lleve un rechazo.
+                  if (e.target.value === "E") setPeriodicidad(PERIODICIDAD_EXTRAORDINARIA);
+                }}>
                 {TIPOS_NOMINA.map((t) => (
                   <option key={t.clave} value={t.clave}>{t.label}</option>
                 ))}
@@ -114,11 +123,17 @@ export function CorridaFormModal({
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-2">Periodicidad</label>
-              <select className={inputClass} value={periodicidad} onChange={(e) => cambiarPeriodicidad(e.target.value)}>
+              <select className={inputClass} value={periodicidad} disabled={tipoNomina === "E"}
+                onChange={(e) => cambiarPeriodicidad(e.target.value)}>
                 {PERIODICIDADES_CORRIBLES.map((p) => (
                   <option key={p.clave} value={p.clave}>{p.label}</option>
                 ))}
               </select>
+              {tipoNomina === "E" && (
+                <p className="mt-1 text-[11px] text-ink-3">
+                  Fija en una extraordinaria: el pago no corresponde a un periodo.
+                </p>
+              )}
             </div>
           </div>
 

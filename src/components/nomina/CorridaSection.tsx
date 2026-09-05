@@ -346,6 +346,15 @@ export function CorridaSection({
         </Note>
       )}
 
+      {periodo.TipoNomina === "E" && (
+        <Note tone="info" title="Es una nómina extraordinaria">
+          No paga el sueldo del periodo: solo lo que captures en cada empleado. Para un aguinaldo,
+          entra a sus incidencias y agrega uno — sin días ni importe se calculan los que le tocan
+          por antigüedad. Su ISR va por el artículo 174 del Reglamento, no por la tarifa del
+          periodo.
+        </Note>
+      )}
+
       <Card>
         <CardHeader
           title="Recibos"

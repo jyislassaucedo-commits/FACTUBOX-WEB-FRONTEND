@@ -14,7 +14,13 @@ export const PERIODICIDADES_CORRIBLES = [
   { clave: "04", label: "Quincenal", dias: "15" },
   { clave: "05", label: "Mensual", dias: "30" },
   { clave: "10", label: "Decenal", dias: "10" },
+  // Para las extraordinarias. El SAT la exige ahí: el pago no corresponde a
+  // ningún periodo, así que no hay periodicidad que declarar.
+  { clave: "99", label: "Otra (pago extraordinario)", dias: "15" },
 ] as const;
+
+/** La periodicidad que el SAT exige en una nómina extraordinaria. */
+export const PERIODICIDAD_EXTRAORDINARIA = "99";
 
 export function etiquetaPeriodicidad(clave: string): string {
   return PERIODICIDADES_CORRIBLES.find((p) => p.clave === clave)?.label ?? clave;

@@ -26,6 +26,7 @@ const TIPOS = [
   { clave: "INCAPACIDAD", label: "Incapacidad", ayuda: "Sus días los cubre el IMSS, no el patrón." },
   { clave: "HORAS_EXTRA", label: "Horas extra", ayuda: "Se calcula el importe y cuánto va exento." },
   { clave: "VACACIONES", label: "Vacaciones", ayuda: "Se pagan normal y generan prima del 25%." },
+  { clave: "AGUINALDO", label: "Aguinaldo", ayuda: "Sin días ni importe se calculan los que le tocan por antigüedad." },
   { clave: "PERCEPCION", label: "Otra percepción", ayuda: "Un bono, vales, lo que se le pague aparte." },
   { clave: "DEDUCCION", label: "Otra deducción", ayuda: "Un préstamo, pensión alimenticia, cuota sindical." },
 ] as const;
@@ -41,6 +42,10 @@ function resumen(i: IncidenciaNomina): string {
       return `${i.horas} horas tipo ${i.tipo_horas}${i.dias_horas_extra ? ` en ${i.dias_horas_extra} días` : ""}`;
     case "VACACIONES":
       return `Vacaciones · ${d}`;
+    case "AGUINALDO":
+      return i.importe && parseFloat(i.importe) > 0
+        ? `Aguinaldo · ${i.importe}`
+        : d ? `Aguinaldo · ${d}` : "Aguinaldo · los que le tocan";
     default:
       return `${i.concepto || i.clave_sat} · $${i.importe}`;
   }
@@ -112,6 +117,22 @@ export function IncidenciasModal({
   /** Cada tipo pide lo suyo. Mostrar los seis campos siempre haría que quien
    *  captura una falta tenga que ignorar cinco que no le tocan. */
   function camposDelTipo() {
+    if (tipo === "AGUINALDO") {
+      // Los dos vacíos es el caso normal: se calculan los días que le tocan
+      // por su antigüedad, que es justo la cuenta que nadie quiere hacer.
+      return (
+        <>
+          <Campo etiqueta="Días" ayuda="Vacío: los que le tocan (15 al año, proporcionales).">
+            <input type="number" step="0.01" min="0" className={inputClass}
+              value={campos.dias ?? ""} onChange={(e) => set("dias", e.target.value)} />
+          </Campo>
+          <Campo etiqueta="O el importe" ayuda="Si ya lo tienes calculado.">
+            <input type="number" step="0.01" min="0" className={inputClass}
+              value={campos.importe ?? ""} onChange={(e) => set("importe", e.target.value)} />
+          </Campo>
+        </>
+      );
+    }
     if (tipo === "FALTA" || tipo === "VACACIONES") {
       return (
         <Campo etiqueta="Días" ayuda={tipo === "VACACIONES" ? "Se pagan normal; se agrega la prima." : undefined}>
