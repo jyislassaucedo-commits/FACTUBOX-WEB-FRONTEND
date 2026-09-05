@@ -316,6 +316,7 @@ export function NuevaFacturaWizard({
   const revisandoSat = tocaRevisar && revisionVigente === null;
   const erroresSat = datosRevision?.Validacion.Errores ?? [];
   const advertenciasSat = datosRevision?.Validacion.Advertencias ?? [];
+  const noRevisadoSat = datosRevision?.Validacion.NoRevisado ?? [];
   const rechazadoPorSat = datosRevision !== null && datosRevision.Valido === "0";
 
   // Al llegar al último paso se revisa sola: si el usuario tuviera que pedirlo,
@@ -564,6 +565,7 @@ export function NuevaFacturaWizard({
               hayResultado={datosRevision !== null}
               errores={erroresSat}
               advertencias={advertenciasSat}
+              noRevisado={noRevisadoSat}
               motivoFallo={falloRevision}
               onReintentar={reintentarRevision}
             />

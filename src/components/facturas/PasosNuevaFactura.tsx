@@ -1207,6 +1207,7 @@ export function RevisionSat({
   hayResultado,
   errores,
   advertencias,
+  noRevisado,
   motivoFallo,
   onReintentar,
 }: {
@@ -1215,6 +1216,8 @@ export function RevisionSat({
   hayResultado: boolean;
   errores: HallazgoSat[];
   advertencias: HallazgoSat[];
+  /** Capas del validador que no se pudieron correr, con el motivo. */
+  noRevisado: string[];
   /** Por qué no se pudo revisar, si es que no se pudo. */
   motivoFallo: string | null;
   onReintentar: () => void;
@@ -1274,10 +1277,36 @@ export function RevisionSat({
         </Card>
       )}
 
-      {errores.length === 0 && (
+      {errores.length === 0 && noRevisado.length === 0 && (
         <Note tone="ok" title="El comprobante pasa las reglas del SAT">
           Se revisó contra los esquemas oficiales, los catálogos vigentes y el
           sello. Nada de esto consumió timbres.
+        </Note>
+      )}
+
+      {/* Cuando alguna capa no corrió, el visto bueno vale menos de lo que
+          parece: decir "pasa las reglas del SAT" habiendo revisado tres cuartas
+          partes es peor que no decir nada, porque el usuario timbra confiado.
+          Se muestra también junto a los errores — saber que encima faltó
+          revisar algo cambia lo que uno hace después de corregir. */}
+      {noRevisado.length > 0 && (
+        <Note
+          tone="warn"
+          title={
+            errores.length === 0
+              ? "El comprobante pasa lo que se pudo revisar"
+              : "Además, quedó algo sin revisar"
+          }
+        >
+          <ul className="mt-1 space-y-1">
+            {noRevisado.map((motivo, i) => (
+              <li key={motivo + i}>· {motivo}</li>
+            ))}
+          </ul>
+          <p className="mt-1.5 opacity-80">
+            Puedes timbrar, pero de esa parte no hay quien avise antes que el
+            PAC.
+          </p>
         </Note>
       )}
 
