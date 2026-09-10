@@ -17,6 +17,7 @@ export type EmisorSectionKey =
   | "receptores"
   | "empleados"
   | "nomina"
+  | "autofacturas"
   | "disenos";
 
 export type EmisorSection = {
@@ -77,6 +78,13 @@ export const EMISOR_SECTIONS: EmisorSection[] = [
     segment: "nomina",
     label: "Nómina",
     description: "Corre y timbra la nómina del periodo",
+    group: "operacion",
+  },
+  {
+    key: "autofacturas",
+    segment: "autofacturas",
+    label: "Autofacturas",
+    description: "Ventas por QR pendientes de que el cliente facture",
     group: "operacion",
   },
   {
