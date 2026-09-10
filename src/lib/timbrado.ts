@@ -304,8 +304,9 @@ function buildDatosJSONPago(input: NuevaFacturaInput, pago: PagoInput) {
 
 // Arma el JSON CFDI 4.0 que espera JSON_CFDI40 (mismo formato usado por el
 // timbrado existente), calculando totales e impuestos globales a partir de
-// los conceptos capturados.
-function buildDatosJSON(input: NuevaFacturaInput) {
+// los conceptos capturados. Exportada porque la autofactura por QR arma el
+// mismo comprobante (el backend le quita el Receptor).
+export function buildDatosJSON(input: NuevaFacturaInput) {
   if (input.tipoDeComprobante === "P" && input.pago) {
     return buildDatosJSONPago(input, input.pago);
   }

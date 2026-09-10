@@ -258,6 +258,56 @@ export type Contexto = {
 
 const CLAVE_PROD_SERV = /^\d{8}$/;
 
+/**
+ * Problemas de la lista de conceptos. Aparte de validar() porque también los
+ * usa la autofactura por QR, que captura conceptos sin el resto del borrador.
+ */
+export function problemasDeConceptos(conceptos: ConceptoInput[]): Problema[] {
+  const conceptosP: Problema[] = [];
+  if (conceptos.length === 0) {
+    conceptosP.push({ campo: "conceptos", mensaje: "Agrega al menos un concepto." });
+  }
+  conceptos.forEach((c, i) => {
+    if (!c.descripcion.trim()) {
+      conceptosP.push({ campo: `concepto.${i}.descripcion`, mensaje: "Falta la descripción." });
+    }
+    if (!CLAVE_PROD_SERV.test(c.claveProdServ.trim())) {
+      conceptosP.push({
+        campo: `concepto.${i}.claveProdServ`,
+        mensaje: "La clave del SAT son 8 dígitos.",
+      });
+    }
+    if (!(c.cantidad > 0)) {
+      conceptosP.push({ campo: `concepto.${i}.cantidad`, mensaje: "La cantidad debe ser mayor a 0." });
+    }
+    if (!(c.valorUnitario > 0)) {
+      conceptosP.push({
+        campo: `concepto.${i}.valorUnitario`,
+        mensaje: "El precio unitario debe ser mayor a 0.",
+      });
+    }
+    if (!c.claveUnidad.trim()) {
+      conceptosP.push({ campo: `concepto.${i}.claveUnidad`, mensaje: "Falta la unidad." });
+    }
+    const vistos = new Set<string>();
+    for (const imp of c.impuestos) {
+      const key = `${imp.tipo}-${imp.naturaleza}-${imp.tasa}`;
+      if (vistos.has(key)) {
+        conceptosP.push({
+          campo: `concepto.${i}.impuestos`,
+          mensaje: "Hay un impuesto repetido con la misma tasa en este concepto.",
+        });
+        break;
+      }
+      vistos.add(key);
+    }
+  });
+  if (conceptosP.length === 0 && calcularTotales(conceptos).total <= 0) {
+    conceptosP.push({ campo: "conceptos", mensaje: "El total del comprobante no puede ser 0." });
+  }
+  return conceptosP;
+}
+
 /** Todos los problemas del borrador, agrupados por paso. */
 export function validar(
   borrador: FacturaBorrador,
@@ -351,50 +401,7 @@ export function validar(
     }
   }
 
-  const conceptosP: Problema[] = [];
-  if (borrador.tipo !== "P") {
-    if (borrador.conceptos.length === 0) {
-      conceptosP.push({ campo: "conceptos", mensaje: "Agrega al menos un concepto." });
-    }
-    borrador.conceptos.forEach((c, i) => {
-      if (!c.descripcion.trim()) {
-        conceptosP.push({ campo: `concepto.${i}.descripcion`, mensaje: "Falta la descripción." });
-      }
-      if (!CLAVE_PROD_SERV.test(c.claveProdServ.trim())) {
-        conceptosP.push({
-          campo: `concepto.${i}.claveProdServ`,
-          mensaje: "La clave del SAT son 8 dígitos.",
-        });
-      }
-      if (!(c.cantidad > 0)) {
-        conceptosP.push({ campo: `concepto.${i}.cantidad`, mensaje: "La cantidad debe ser mayor a 0." });
-      }
-      if (!(c.valorUnitario > 0)) {
-        conceptosP.push({
-          campo: `concepto.${i}.valorUnitario`,
-          mensaje: "El precio unitario debe ser mayor a 0.",
-        });
-      }
-      if (!c.claveUnidad.trim()) {
-        conceptosP.push({ campo: `concepto.${i}.claveUnidad`, mensaje: "Falta la unidad." });
-      }
-      const vistos = new Set<string>();
-      for (const imp of c.impuestos) {
-        const key = `${imp.tipo}-${imp.naturaleza}-${imp.tasa}`;
-        if (vistos.has(key)) {
-          conceptosP.push({
-            campo: `concepto.${i}.impuestos`,
-            mensaje: "Hay un impuesto repetido con la misma tasa en este concepto.",
-          });
-          break;
-        }
-        vistos.add(key);
-      }
-    });
-    if (conceptosP.length === 0 && calcularTotales(borrador.conceptos).total <= 0) {
-      conceptosP.push({ campo: "conceptos", mensaje: "El total del comprobante no puede ser 0." });
-    }
-  }
+  const conceptosP: Problema[] = borrador.tipo !== "P" ? problemasDeConceptos(borrador.conceptos) : [];
 
   const pagosP: Problema[] = [];
   if (borrador.tipo === "P") {

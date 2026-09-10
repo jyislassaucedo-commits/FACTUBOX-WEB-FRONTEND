@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -24,8 +25,8 @@ import {
   Toolbar,
   useToast,
 } from "@/components/ui";
-import type { PillTone } from "@/components/ui/styles";
-import { formatoFecha } from "@/lib/emisorNav";
+import { buttonClass, type PillTone } from "@/components/ui/styles";
+import { emisorHref, formatoFecha } from "@/lib/emisorNav";
 import type { AutofacturaEmisor } from "@/lib/autofacturasEmisor";
 import { formatoDinero, type EstadoAutofactura } from "@/lib/autofacturaShared";
 
@@ -39,11 +40,11 @@ const ESTADO: Record<EstadoAutofactura, { label: string; tone: PillTone }> = {
 };
 
 /**
- * Las ventas que los integradores del emisor dejaron para que el cliente se
- * facture solo (autofactura por QR). Aquí no se crean: llegan por
- * apiAutofacturaV2 desde el punto de venta. Lo que sí se hace desde aquí es
- * ver en qué van, reenviar la invitación (o corregir el correo) y retirar un
- * enlace que ya no debe facturarse.
+ * Las ventas que quedaron para que el cliente se facture solo (autofactura
+ * por QR): las que dejan los integradores por apiAutofacturaV2 y las que el
+ * emisor crea aquí mismo. Desde aquí se ve en qué van, se reenvía la
+ * invitación (o se corrige el correo) y se retira un enlace que ya no debe
+ * facturarse.
  */
 export function AutofacturasSection({
   rfc,
@@ -106,7 +107,12 @@ export function AutofacturasSection({
       <Card>
         <CardHeader
           title="Autofacturas por QR"
-          description="Ventas que tu punto de venta dejó pendientes de que el cliente capture sus datos y se facture solo. Cada una consume un timbre hasta que el cliente termina."
+          description="Ventas pendientes de que el cliente capture sus datos y se facture solo. Cada una consume un timbre hasta que el cliente termina."
+          action={
+            <Link href={`${emisorHref(rfc, "autofacturas")}/nueva`} className={buttonClass("primary")}>
+              Nueva autofactura
+            </Link>
+          }
         />
 
         <Toolbar>
@@ -134,7 +140,7 @@ export function AutofacturasSection({
             title={autofacturas.length === 0 ? "Sin autofacturas todavía" : "Ninguna coincide"}
             description={
               autofacturas.length === 0
-                ? "Cuando tu punto de venta registre ventas con apiAutofacturaV2, aparecen aquí con su estado."
+                ? "Crea una aquí o conecta tu punto de venta con apiAutofacturaV2; aparecen con su estado."
                 : "Prueba con otra referencia, UUID o correo, o cambia el filtro."
             }
           />
