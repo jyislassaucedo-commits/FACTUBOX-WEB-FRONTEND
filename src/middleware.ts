@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const SESSION_COOKIE = "factubox_session";
-const PUBLIC_PATHS = ["/login"];
+// /f/{codigo} es la autofactura por QR: el comprador llega desde el ticket o
+// el correo y no tiene (ni debe necesitar) una cuenta de Factubox.
+const PUBLIC_PATHS = ["/login", "/f"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -9,6 +11,8 @@ export function middleware(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   const hasSessionCookie = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
 
+  // Con sesion o sin ella, la pagina publica se muestra igual: no redirige
+  // al inicio como /login, porque quien la abre no viene a usar el app.
   if (!isPublic && !hasSessionCookie) {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
