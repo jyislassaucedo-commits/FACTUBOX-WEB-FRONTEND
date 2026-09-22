@@ -101,7 +101,9 @@ function base64(datos: unknown) {
   return Buffer.from(JSON.stringify(datos)).toString("base64");
 }
 
-async function llamar<T>(endpoint: string, params: Record<string, string>): Promise<PhpResponse<T>> {
+/** Llama a un endpoint del módulo Nomina con el token de la sesión. La usa
+ *  también nominaManual.ts: es el mismo módulo PHP con la misma sesión. */
+export async function llamar<T>(endpoint: string, params: Record<string, string>): Promise<PhpResponse<T>> {
   const session = await getSession();
   if (!session) return { Error: "1", DescripError: "No autenticado" };
   return callLegacyPhpApi<T>(`${RUTA}/${endpoint}`, { Token: session.token, ...params });

@@ -7,6 +7,7 @@ import {
   Button, Card, CardBody, CardHeader, EmptyState, Note, Pill,
   Table, Td, Th, useToast,
 } from "@/components/ui";
+import { buttonClass } from "@/components/ui/styles";
 import { dias, etiquetaPeriodicidad, pesos } from "@/lib/nominaShared";
 import { CorridaFormModal } from "./CorridaFormModal";
 import { RepetirCorridaModal } from "./RepetirCorridaModal";
@@ -139,9 +140,20 @@ export function NominaSection({
           title="Nómina"
           description="Cada corrida junta a quien le toca cobrar en ese periodo, le calcula su recibo y lo timbra."
           action={
-            <Button variant="primary" onClick={() => setAbierto(true)}>
-              Nueva corrida
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Dos caminos para el mismo XML: la corrida calcula el recibo
+                  desde la ficha; la manual lo captura renglón por renglón y
+                  se guarda como plantilla (prenómina). */}
+              <Link href={`/emisores/${encodeURIComponent(rfc)}/nomina/prenominas`} className={buttonClass("ghost")}>
+                Prenóminas
+              </Link>
+              <Link href={`/emisores/${encodeURIComponent(rfc)}/nomina/manual`} className={buttonClass("secondary")}>
+                Nómina manual
+              </Link>
+              <Button variant="primary" onClick={() => setAbierto(true)}>
+                Nueva corrida
+              </Button>
+            </div>
           }
         />
 
