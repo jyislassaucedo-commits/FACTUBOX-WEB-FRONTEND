@@ -140,8 +140,8 @@ export const TIPOS_RELACION_NOMINA = [
 ];
 
 export const FORMATOS_ANTIGUEDAD: Array<{ value: AntiguedadFormato; label: string }> = [
-  { value: "W", label: "En semanas (P136W)" },
-  { value: "YMD", label: "En años, meses y días (P2Y7M3D)" },
+  { value: "W", label: "En semanas (P136W) — recomendado" },
+  { value: "YMD", label: "En años, meses y días (P4Y3M3D) — el PAC la cambia seguido" },
   { value: "NINGUNA", label: "No mandarla" },
 ];
 
@@ -690,7 +690,7 @@ export function antiguedad(inicio: string, hasta: string, formato: AntiguedadFor
   if (!ini || !fin || fin < ini || inicio.startsWith("0000")) return null;
   const diasTranscurridos = Math.round((fin.getTime() - ini.getTime()) / 86_400_000);
   if (formato === "W") {
-    return `P${Math.floor(diasTranscurridos / 7)}W`;
+    return `P${Math.floor((diasTranscurridos + 1) / 7)}W`;
   }
   const dias = diasTranscurridos + 1;
   const anios = Math.floor(dias / 365);

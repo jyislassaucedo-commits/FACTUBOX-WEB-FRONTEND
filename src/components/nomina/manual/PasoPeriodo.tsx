@@ -184,7 +184,7 @@ export function PasoPeriodo({
 
           {contratoConAntiguedad && empleado && (
             <div className="grid gap-3 sm:grid-cols-2">
-              <Campo label="Antigüedad" hint="Cómo se declara en el recibo.">
+              <Campo label="Antigüedad" hint="Semanas es lo seguro: el SAT solo pide que no pase del tope. En años/meses/días el PAC exige su cuenta exacta, y la ha cambiado varias veces en 2026.">
                 <Select
                   value={form.antiguedadFormato}
                   onChange={(e) => set({ antiguedadFormato: e.target.value as AntiguedadFormato })}
