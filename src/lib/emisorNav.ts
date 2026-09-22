@@ -17,6 +17,7 @@ export type EmisorSectionKey =
   | "receptores"
   | "empleados"
   | "nomina"
+  | "masivo"
   | "autofacturas"
   | "disenos";
 
@@ -78,6 +79,13 @@ export const EMISOR_SECTIONS: EmisorSection[] = [
     segment: "nomina",
     label: "Nómina",
     description: "Corre y timbra la nómina del periodo",
+    group: "operacion",
+  },
+  {
+    key: "masivo",
+    segment: "masivo",
+    label: "Timbrado masivo",
+    description: "Sube una plantilla de Excel y timbra todo el lote",
     group: "operacion",
   },
   {
