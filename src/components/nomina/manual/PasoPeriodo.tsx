@@ -95,7 +95,7 @@ export function PasoPeriodo({
       const res = await fetch(`/api/empresas/${encodeURIComponent(rfc)}/nomina/manual/proponer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idEmpleado: empleado.Id, periodo: p }),
+        body: JSON.stringify({ idEmpleado: String(empleado.Id), periodo: p }),
       });
       const body = await res.json();
       if (!res.ok) {

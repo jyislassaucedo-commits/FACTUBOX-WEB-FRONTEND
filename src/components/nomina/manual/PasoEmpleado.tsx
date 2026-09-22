@@ -38,7 +38,7 @@ export function PasoEmpleado({
 }) {
   const [q, setQ] = useState("");
   const { catalogos } = useCatalogosNomina();
-  const actual = empleados.find((e) => e.Id === idEmpleado) ?? null;
+  const actual = empleados.find((e) => String(e.Id) === idEmpleado) ?? null;
 
   const filtrados = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -78,12 +78,12 @@ export function PasoEmpleado({
           ) : (
             <ul className="max-h-[360px] divide-y divide-line-2 overflow-y-auto rounded-xl border border-line">
               {filtrados.map((e) => {
-                const elegido = e.Id === idEmpleado;
+                const elegido = String(e.Id) === idEmpleado;
                 return (
                   <li key={e.Id}>
                     <button
                       type="button"
-                      onClick={() => onElegir(e.Id)}
+                      onClick={() => onElegir(String(e.Id))}
                       aria-pressed={elegido}
                       className={cx(
                         "focus-brand flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left transition hover:bg-surface-2",

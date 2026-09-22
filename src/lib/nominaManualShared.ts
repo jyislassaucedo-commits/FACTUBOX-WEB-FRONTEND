@@ -677,32 +677,27 @@ export function diasEntre(ini: string, fin: string): string {
 }
 
 /**
- * La antigüedad como la calcula NominaCfdi: en semanas cumplidas hasta el
- * cierre del periodo, o en años/meses/días contados hasta el día siguiente al
- * cierre. Vista previa, nada más: el valor que va al XML lo pone el servidor.
+ * La antigüedad como la calcula NominaCfdi (espejo de `antiguedadYMD` en
+ * PHP, que es la cuenta que el PAC exige exacta): en semanas cumplidas hasta
+ * el cierre del periodo, o los días transcurridos contando el de ingreso
+ * repartidos en años de 365 y meses de 30. Vista previa, nada más: el valor
+ * que va al XML lo pone el servidor.
  */
 export function antiguedad(inicio: string, hasta: string, formato: AntiguedadFormato): string | null {
   if (formato === "NINGUNA") return null;
   const ini = parseISO(inicio.slice(0, 10));
   const fin = parseISO(hasta.slice(0, 10));
   if (!ini || !fin || fin < ini || inicio.startsWith("0000")) return null;
+  const diasTranscurridos = Math.round((fin.getTime() - ini.getTime()) / 86_400_000);
   if (formato === "W") {
-    return `P${Math.floor((fin.getTime() - ini.getTime()) / (7 * 86_400_000))}W`;
+    return `P${Math.floor(diasTranscurridos / 7)}W`;
   }
-  const f = new Date(fin.getFullYear(), fin.getMonth(), fin.getDate() + 1);
-  let y = f.getFullYear() - ini.getFullYear();
-  let m = f.getMonth() - ini.getMonth();
-  let d = f.getDate() - ini.getDate();
-  if (d < 0) {
-    m -= 1;
-    // Días del mes anterior al de `f`, que es como reparte DateTime::diff.
-    d += new Date(f.getFullYear(), f.getMonth(), 0).getDate();
-  }
-  if (m < 0) {
-    y -= 1;
-    m += 12;
-  }
-  return `P${y > 0 ? `${Math.min(99, y)}Y` : ""}${m > 0 ? `${m}M` : ""}${d}D`;
+  const dias = diasTranscurridos + 1;
+  const anios = Math.floor(dias / 365);
+  let resto = dias - anios * 365;
+  const meses = Math.floor(resto / 30);
+  resto -= meses * 30;
+  return `P${anios > 0 ? `${Math.min(99, anios)}Y` : ""}${meses > 0 ? `${meses}M` : ""}${resto}D`;
 }
 
 /* -------------------------------------------------------------------------- */

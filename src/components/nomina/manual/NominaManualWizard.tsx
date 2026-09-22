@@ -84,7 +84,7 @@ export function NominaManualWizard({
   const [revision, setRevision] = useState<ResultadoRevision | null>(null);
   const revisionEnVuelo = useRef<string | null>(null);
 
-  const empleado = useMemo(() => empleados.find((e) => e.Id === form.idEmpleado) ?? null, [empleados, form.idEmpleado]);
+  const empleado = useMemo(() => empleados.find((e) => String(e.Id) === form.idEmpleado) ?? null, [empleados, form.idEmpleado]);
   const problemas = useMemo(() => validarManual(form, empleado), [form, empleado]);
   const problemasDe = (paso: PasoManualId) => problemas.filter((p) => p.paso === paso);
   const todoValido = problemas.length === 0;
@@ -121,6 +121,13 @@ export function NominaManualWizard({
   const revisandoSat = tocaRevisar && revisionVigente === null;
   const rechazadoPorSat = datosRevision !== null && datosRevision.Valido === "0";
 
+  // La clave que se está mostrando ahora mismo. El resultado de una petición
+  // solo se aplica si sigue siendo la vigente: sin bandera de "montado", que
+  // en desarrollo StrictMode apaga en la primera pasada del efecto y deja la
+  // revisión esperando una respuesta que sí llegó.
+  const claveVigente = useRef(claveComprobante);
+  claveVigente.current = claveComprobante;
+
   useEffect(() => {
     if (!tocaRevisar) return;
     if (revision !== null && revision.clave === claveComprobante) return;
@@ -128,7 +135,6 @@ export function NominaManualWizard({
 
     const clave = claveComprobante;
     revisionEnVuelo.current = clave;
-    let vivo = true;
 
     fetch(`/api/empresas/${encodeURIComponent(rfc)}/nomina/manual/validar`, {
       method: "POST",
@@ -137,19 +143,22 @@ export function NominaManualWizard({
     })
       .then(async (res) => {
         const body = await res.json();
-        if (res.ok) return { clave, datos: body as ValidarResult };
-        if (Array.isArray(body.errores) && body.errores.length > 0 && vivo) setErroresServidor(body.errores);
-        return { clave, motivo: (body.error as string) ?? "No se pudo revisar" };
+        if (res.ok) return { clave, datos: body as ValidarResult, errores: [] as ProblemaManual[] };
+        return {
+          clave,
+          motivo: (body.error as string) ?? "No se pudo revisar",
+          errores: (Array.isArray(body.errores) ? body.errores : []) as ProblemaManual[],
+        };
       })
-      .catch(() => ({ clave, motivo: "No se pudo conectar con el servidor" }))
-      .then((r) => vivo && setRevision(r))
+      .catch(() => ({ clave, motivo: "No se pudo conectar con el servidor", errores: [] as ProblemaManual[] }))
+      .then((r) => {
+        if (claveVigente.current !== clave) return;
+        if (r.errores.length > 0) setErroresServidor(r.errores);
+        setRevision("datos" in r && r.datos ? { clave, datos: r.datos } : { clave, motivo: "motivo" in r ? r.motivo : "No se pudo revisar" });
+      })
       .finally(() => {
         if (revisionEnVuelo.current === clave) revisionEnVuelo.current = null;
       });
-
-    return () => {
-      vivo = false;
-    };
     // `form` ya está resumido en la clave.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tocaRevisar, claveComprobante, revision, rfc, emisorToken]);
