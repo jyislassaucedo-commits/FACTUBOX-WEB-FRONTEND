@@ -19,16 +19,19 @@ import { money } from "@/lib/cfdi";
 import {
   BORRADOR_INICIAL,
   CONCEPTO_VACIO,
-  PAGO_VACIO,
   RFC_PUBLICO_GENERAL,
   calcularTotales,
   construirDoctoRelacionado,
   etiquetaTipo,
+  internosDe,
   pasosPara,
   receptorDe,
   validar,
+  vistaDe,
+  PASOS_VISTA,
   type FacturaBorrador,
-  type PasoId,
+  type ModoCaptura,
+  type PasoVistaId,
 } from "@/lib/facturaNueva";
 import {
   PasoConceptos,
@@ -40,12 +43,13 @@ import {
   ResultadoTimbrado,
   RevisionSat,
 } from "./PasosNuevaFactura";
+import { ElegirModo } from "./ElegirModo";
 import { RelacionarFacturaModal } from "./RelacionarFacturaModal";
 import { ReceptorFormModal } from "@/components/receptores/ReceptorFormModal";
 import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
 import type { Serie } from "@/lib/series";
-import type { TimbrarResult, ValidarResult } from "@/lib/timbrado";
+import type { TimbrarResult, TipoComprobante, ValidarResult } from "@/lib/timbrado";
 import { TIMBRES_BAJOS, type Timbres } from "@/lib/timbresShared";
 
 /**
@@ -67,12 +71,22 @@ export function NuevaFacturaWizard({
   timbres,
   origenRfc,
   origenUuid,
+  tipoInicial,
+  modoInicial,
 }: {
   emisores: Emisor[];
   timbres: Timbres | null;
   /** Vienen de "Pagar factura" en el detalle: saltan directo al paso de pago. */
   origenRfc?: string;
   origenUuid?: string;
+  /**
+   * De los atajos: el botón dividido y el menú de Facturas llevan directo al
+   * tipo más frecuente, y "Subir plantilla" entra ya en el modo de Excel. Son
+   * atajos, no otra pantalla: el asistente es el mismo y el usuario puede
+   * volver atrás y cambiar lo que traía decidido.
+   */
+  tipoInicial?: TipoComprobante;
+  modoInicial?: ModoCaptura;
 }) {
   const toast = useToast();
 
@@ -81,16 +95,27 @@ export function NuevaFacturaWizard({
   // "P" y se salta directo al paso de pago (ver autoUuid en PasoPagos).
   const emisorOrigenValido = origenRfc && emisores.some((e) => e.Rfc === origenRfc);
 
+  /** Un atajo con el tipo ya decidido también salta el primer paso. */
+  const entraDecidido = Boolean((emisorOrigenValido && origenUuid) || tipoInicial);
+
   const [borrador, setBorrador] = useState<FacturaBorrador>(() => ({
     ...BORRADOR_INICIAL,
     rfcEmisor: emisorOrigenValido ? origenRfc! : (emisores[0]?.Rfc ?? ""),
-    tipo: emisorOrigenValido && origenUuid ? "P" : BORRADOR_INICIAL.tipo,
+    tipo:
+      emisorOrigenValido && origenUuid ? "P" : (tipoInicial ?? BORRADOR_INICIAL.tipo),
   }));
-  const [pasoActual, setPasoActual] = useState<PasoId>(
-    emisorOrigenValido && origenUuid ? "pagos" : "tipo"
+  const [pasoActual, setPasoActual] = useState<PasoVistaId>(
+    // Desde "Pagar factura" se entra con la factura origen ya elegida: el tipo
+    // está decidido y lo que toca es capturar.
+    entraDecidido ? "como" : "tipo"
   );
   /** Pasos donde el usuario ya intentó avanzar: solo ahí se pintan los errores. */
-  const [intentados, setIntentados] = useState<PasoId[]>([]);
+  const [intentados, setIntentados] = useState<PasoVistaId[]>([]);
+  /**
+   * Cómo se capturan los comprobantes. Vive aquí y no en el borrador porque no
+   * es parte del CFDI: es la forma de llenarlo.
+   */
+  const [modo, setModo] = useState<ModoCaptura>(modoInicial ?? "una");
 
   /**
    * Series y receptores se cachean junto con la "clave" de la consulta que los
@@ -281,12 +306,27 @@ export function NuevaFacturaWizard({
     setRevision(null);
   }
 
-  // Un CFDI de Pago no tiene receptor propio ni conceptos que capturar: el
-  // paso "Pago" los reemplaza a ambos (ver pasosPara).
-  const pasos = pasosPara(borrador.tipo);
+  /**
+   * Con la plantilla el comprobante no se captura aquí: viene del Excel, y
+   * quien lo revisa es la pantalla del lote, fila por fila y con la celda
+   * exacta. Así que el borrador deja de importar — ni sus faltantes, ni el
+   * resumen, ni el paso de revisar y timbrar.
+   */
+  const enPlantilla = modo === "plantilla";
+
+  // Tres pantallas: qué, cómo y revisión. Los pasos internos (emisor,
+  // receptor, conceptos…) siguen existiendo para agrupar los problemas y
+  // poder decir "falta el receptor" en vez de "falta algo".
+  const pasos = enPlantilla ? PASOS_VISTA.slice(0, 2) : PASOS_VISTA;
+  const pasosInternos = pasosPara(borrador.tipo);
   const indiceActual = pasos.findIndex((p) => p.id === pasoActual);
-  const problemasPendientes = pasos.flatMap((p) => problemas[p.id]);
+  const problemasPendientes = pasosInternos.flatMap((p) => problemas[p.id]);
   const todoValido = problemasPendientes.length === 0;
+
+  /** Los problemas de la pantalla actual, juntando los de sus pasos internos. */
+  const problemasDe = (vista: PasoVistaId) =>
+    enPlantilla ? [] : internosDe(vista, borrador.tipo).flatMap((id) => problemas[id]);
+  const problemasVista = problemasDe(pasoActual);
 
   /**
    * La revisión vale solo mientras el comprobante no cambie. Se compara contra
@@ -372,7 +412,7 @@ export function NuevaFacturaWizard({
    * no le hemos pedido.
    */
   const pasosStepper = pasos.map((p, i) => {
-    const suyos = problemas[p.id];
+    const suyos = problemasDe(p.id);
     const visitado = intentados.includes(p.id) || i < indiceActual;
     let estado: PasoEstado = "pendiente";
     if (p.id === pasoActual) estado = "actual";
@@ -389,13 +429,18 @@ export function NuevaFacturaWizard({
 
   function irA(id: string) {
     setIntentados((prev) => (prev.includes(pasoActual) ? prev : [...prev, pasoActual]));
-    setPasoActual(id as PasoId);
+    setPasoActual(id as PasoVistaId);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /** Desde la revisión se corrige por paso interno; aquí se traduce a pantalla. */
+  function irAPasoInterno(paso: string) {
+    irA(vistaDe(paso as (typeof pasosInternos)[number]["id"]));
   }
 
   function siguiente() {
     setIntentados((prev) => (prev.includes(pasoActual) ? prev : [...prev, pasoActual]));
-    if (problemas[pasoActual].length > 0) {
+    if (problemasVista.length > 0) {
       toast("Faltan datos en este paso", "danger");
       return;
     }
@@ -503,10 +548,13 @@ export function NuevaFacturaWizard({
     );
   }
 
+  // Los componentes-paso filtran por `campo`, así que se les puede pasar la
+  // unión de problemas de la pantalla: cada uno recoge los suyos. Es lo que
+  // permite apilarlos sin tocarles una línea.
   const comun = {
     borrador,
     set,
-    problemas: problemas[pasoActual],
+    problemas: problemasVista,
     mostrarErrores: intentados.includes(pasoActual),
   };
 
@@ -514,45 +562,67 @@ export function NuevaFacturaWizard({
     <div className="space-y-4">
       <Stepper pasos={pasosStepper} onIr={irA} />
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+      <div
+        className={cx(
+          "grid items-start gap-4",
+          !enPlantilla && "xl:grid-cols-[minmax(0,1fr)_300px]"
+        )}
+      >
         <div className="min-w-0 space-y-4">
           {pasoActual === "tipo" && <PasoTipo {...comun} />}
 
-          {pasoActual === "emisor" && (
-            <PasoEmisor
-              {...comun}
-              emisores={emisores}
-              series={series}
-              cargandoSeries={cargandoSeries}
-              onAbrirRelacion={() => setModalRelacion(true)}
+          {pasoActual === "como" && (
+            <ElegirModo
+              modo={modo}
+              onModo={setModo}
+              tipo={borrador.tipo}
+              rfcEmisor={borrador.rfcEmisor}
             />
           )}
 
-          {pasoActual === "receptor" && (
-            <PasoReceptor
-              {...comun}
-              receptores={receptores}
-              receptorActual={receptorActual}
-              cargandoReceptores={cargandoReceptores}
-              onNuevoReceptor={() => setModalReceptor(true)}
-            />
+          {/* Emisor, receptor y conceptos en la misma pantalla: son todos
+              "capturar el comprobante", y pasarlos de uno en uno obligaba a
+              tres clics de Continuar para una factura de dos renglones. */}
+          {pasoActual === "como" && modo === "una" && (
+            <>
+              <PasoEmisor
+                {...comun}
+                emisores={emisores}
+                series={series}
+                cargandoSeries={cargandoSeries}
+                onAbrirRelacion={() => setModalRelacion(true)}
+              />
+
+              {borrador.tipo === "P" ? (
+                <PasoPagos {...comun} autoUuid={origenUuid} />
+              ) : (
+                <>
+                  <PasoReceptor
+                    {...comun}
+                    receptores={receptores}
+                    receptorActual={receptorActual}
+                    cargandoReceptores={cargandoReceptores}
+                    onNuevoReceptor={() => setModalReceptor(true)}
+                  />
+                  <PasoConceptos {...comun} />
+                </>
+              )}
+            </>
           )}
-
-          {pasoActual === "conceptos" && <PasoConceptos {...comun} />}
-
-          {pasoActual === "pagos" && <PasoPagos {...comun} autoUuid={origenUuid} />}
 
           {pasoActual === "revision" && (
             <PasoRevision
               borrador={borrador}
               emisores={emisores}
               receptorActual={receptorActual}
-              problemasTotales={pasos.map((p) => ({
+              // Por paso interno, no por pantalla: "falta el receptor" ayuda
+              // más que "falta algo en Cómo". El botón de corregir traduce.
+              problemasTotales={pasosInternos.map((p) => ({
                 paso: p.id,
                 titulo: p.titulo,
                 problemas: problemas[p.id],
               }))}
-              onIrA={irA}
+              onIrA={irAPasoInterno}
             />
           )}
 
@@ -598,10 +668,18 @@ export function NuevaFacturaWizard({
             </Button>
 
             <div className="flex items-center gap-3">
-              {problemas[pasoActual].length > 0 && (
+              {/* Con la plantilla el botón que cierra el paso es "Revisar el
+                  archivo", dentro de la tarjeta: aquí no hay nada que
+                  continuar. */}
+              {enPlantilla && (
+                <span className="text-[12px] text-ink-3">
+                  El archivo se revisa desde la tarjeta de arriba.
+                </span>
+              )}
+              {problemasVista.length > 0 && (
                 <span className="text-[12px] font-medium text-warn">
-                  {problemas[pasoActual].length} dato
-                  {problemas[pasoActual].length === 1 ? "" : "s"} por completar
+                  {problemasVista.length} dato
+                  {problemasVista.length === 1 ? "" : "s"} por completar
                 </span>
               )}
               {pasoActual === "revision" ? (
@@ -614,7 +692,7 @@ export function NuevaFacturaWizard({
                 >
                   {enviando ? "Timbrando…" : revisandoSat ? "Revisando…" : "Timbrar factura"}
                 </Button>
-              ) : (
+              ) : enPlantilla ? null : (
                 <Button variant="primary" onClick={siguiente}>
                   Continuar
                 </Button>
@@ -624,7 +702,10 @@ export function NuevaFacturaWizard({
         </div>
 
         {/* ---------- Resumen en vivo ---------- */}
-        <aside className="xl:sticky xl:top-20">
+        {/* Resume el borrador que se captura aquí; con la plantilla no hay
+            ninguno, y enseñar "Total $0.00" al lado de un Excel de 230
+            facturas solo confunde. */}
+        <aside className={cx("xl:sticky xl:top-20", enPlantilla && "hidden")}>
           <Card>
             <CardBody className="space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -687,14 +768,14 @@ export function NuevaFacturaWizard({
                   <p className="text-[12.5px] text-ok">Todos los datos están completos.</p>
                 ) : (
                   <ul className="space-y-1.5">
-                    {pasos.filter((p) => problemas[p.id].length > 0).map((p) => (
+                    {pasosInternos.filter((p) => problemas[p.id].length > 0).map((p) => (
                       <li key={p.id}>
                         <button
                           type="button"
-                          onClick={() => irA(p.id)}
+                          onClick={() => irAPasoInterno(p.id)}
                           className={cx(
                             "focus-brand flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-surface-2",
-                            pasoActual === p.id && "bg-surface-2"
+                            pasoActual === vistaDe(p.id) && "bg-surface-2"
                           )}
                         >
                           <span className="text-[12.5px] font-medium text-ink-2">

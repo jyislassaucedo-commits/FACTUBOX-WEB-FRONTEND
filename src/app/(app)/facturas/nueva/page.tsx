@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Card, CardBody, buttonClass } from "@/components/ui";
+import { Card, CardBody } from "@/components/ui";
+import { buttonClass } from "@/components/ui/styles";
 import { NuevaFacturaWizard } from "@/components/facturas/NuevaFacturaWizard";
 import { getEmisores } from "@/lib/emisores";
 import { emisorEstaActivo } from "@/lib/emisoresShared";
@@ -13,14 +14,27 @@ import { getTimbres } from "@/lib/timbres";
 export default async function NuevaFacturaPage({
   searchParams,
 }: {
-  /** origenRfc/origenUuid: vienen de "Pagar factura" en el detalle. */
-  searchParams: Promise<{ origenRfc?: string; origenUuid?: string }>;
+  /**
+   * origenRfc/origenUuid: vienen de "Pagar factura" en el detalle.
+   * tipo/modo: de los atajos del botón dividido y del menú de Facturas.
+   */
+  searchParams: Promise<{
+    origenRfc?: string;
+    origenUuid?: string;
+    tipo?: string;
+    modo?: string;
+  }>;
 }) {
-  const [{ origenRfc, origenUuid }, todos, timbres] = await Promise.all([
+  const [{ origenRfc, origenUuid, tipo, modo }, todos, timbres] = await Promise.all([
     searchParams,
     getEmisores(),
     getTimbres(),
   ]);
+
+  // La URL la escribe cualquiera: se acepta solo lo que el asistente entiende
+  // y lo demás se ignora, que es como si hubiera entrado sin atajo.
+  const tipoInicial = tipo === "I" || tipo === "E" || tipo === "P" ? tipo : undefined;
+  const modoInicial = modo === "plantilla" ? ("plantilla" as const) : undefined;
 
   // Aquí —y SOLO aquí— se ocultan los emisores desactivados. El listado de
   // /emisores y los filtros de /facturas los siguen mostrando: desactivar
@@ -70,6 +84,8 @@ export default async function NuevaFacturaPage({
           timbres={timbres}
           origenRfc={origenRfc}
           origenUuid={origenUuid}
+          tipoInicial={tipoInicial}
+          modoInicial={modoInicial}
         />
       )}
     </div>

@@ -244,6 +244,74 @@ export function pasosPara(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Pasos visibles                                                             */
+/* -------------------------------------------------------------------------- */
+
+/*
+   Los PasoId de arriba siguen siendo la granularidad con la que se AGRUPAN los
+   problemas: "falta el receptor" y "falta un concepto" son cosas distintas y
+   conviene decirlo por separado.
+
+   Lo que cambia es cuántas PANTALLAS ve el usuario. Eran cinco (tipo, emisor,
+   receptor, conceptos, revisión) y son tres, porque emisor, receptor y
+   conceptos son todos lo mismo: capturar el comprobante. Pasarlos de uno en
+   uno obligaba a tres clics de "Continuar" para llenar una factura de dos
+   renglones.
+
+   Y hace sitio para lo que faltaba: subir una plantilla de Excel es OTRA FORMA
+   DE CAPTURAR, no una sección aparte. Vive en el paso "Cómo", junto a
+   capturarla a mano.
+*/
+
+export type PasoVistaId = "tipo" | "como" | "revision";
+
+export const PASOS_VISTA: Array<{ id: PasoVistaId; titulo: string; descripcion: string }> = [
+  { id: "tipo", titulo: "Qué", descripcion: "Qué comprobante vas a emitir" },
+  { id: "como", titulo: "Cómo", descripcion: "Una a una, o muchas de una plantilla" },
+  { id: "revision", titulo: "Revisar y timbrar", descripcion: "Confirma antes de timbrar" },
+];
+
+/** Qué pasos internos alimentan cada pantalla. */
+export function internosDe(vista: PasoVistaId, tipo: TipoComprobante): PasoId[] {
+  if (vista === "tipo") return ["tipo"];
+  if (vista === "revision") return ["revision"];
+  // Un CFDI de Pago no tiene receptor propio ni conceptos que capturar: el
+  // paso "pagos" los reemplaza a ambos.
+  return tipo === "P" ? ["emisor", "pagos"] : ["emisor", "receptor", "conceptos"];
+}
+
+/** En qué pantalla se corrige un problema de este paso interno. */
+export function vistaDe(paso: PasoId): PasoVistaId {
+  if (paso === "tipo") return "tipo";
+  if (paso === "revision") return "revision";
+  return "como";
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cómo se captura                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `una` es el formulario de siempre. `plantilla` sube el .xlsx que ya usa la
+ * aplicación de escritorio y crea un lote.
+ *
+ * No hay opción de "desde una prefactura guardada": el borrador de una factura
+ * vive solo en memoria y no existe dónde guardarlo. Las prenóminas sí existen,
+ * pero son de nómina, que es otro asistente.
+ */
+export type ModoCaptura = "una" | "plantilla";
+
+/**
+ * Qué plantilla de Excel corresponde a cada tipo de comprobante.
+ *
+ * Son las mismas tres que genera el escritorio. Nómina no aparece porque se
+ * corre por periodo y tiene su propia pantalla.
+ */
+export function tipoPlantillaDe(tipo: TipoComprobante): "PREFACTURA" | "PAGO" {
+  return tipo === "P" ? "PAGO" : "PREFACTURA";
+}
+
+/* -------------------------------------------------------------------------- */
 /* Validación                                                                 */
 /* -------------------------------------------------------------------------- */
 

@@ -19,7 +19,11 @@ import { cx } from "@/components/ui";
 const OTROS = [
   { href: "/facturas/nomina", label: "Recibo de nómina", detalle: "Se corre por periodo" },
   { href: "/facturas/nueva?tipo=P", label: "Complemento de pago", detalle: "Cuando te pagan una PPD" },
-  { href: "/facturas/lotes", label: "Subir plantilla de Excel", detalle: "Muchas de golpe" },
+  {
+    href: "/facturas/nueva?tipo=I&modo=plantilla",
+    label: "Subir plantilla de Excel",
+    detalle: "Muchas de golpe",
+  },
   { href: "/facturas/nueva?tipo=E", label: "Nota de crédito", detalle: "Devoluciones y descuentos" },
 ];
 
