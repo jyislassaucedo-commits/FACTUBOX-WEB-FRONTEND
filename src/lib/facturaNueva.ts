@@ -38,14 +38,17 @@ export type OpcionTipo = {
   motivo?: string;
   /**
    * Para los que SÍ se pueden emitir, pero no desde este asistente.
-   * `segmento` es relativo a /emisores/<rfc>.
+   *
+   * `href` es absoluto. Antes era un `segmento` relativo a /emisores/<rfc>,
+   * porque esas pantallas colgaban del emisor; desde que el emisor vive en la
+   * barra y no en la dirección, la ruta ya no depende de él.
    *
    * La distinción importa: "Próximamente" y "está en otra pantalla" se ven
    * igual de deshabilitados, pero uno significa que no existe y el otro que el
    * usuario está en el lugar equivocado. Decir lo primero cuando es lo segundo
    * hace que alguien concluya que la función no está.
    */
-  hechoEn?: { etiqueta: string; segmento: string };
+  hechoEn?: { etiqueta: string; href: string };
 };
 
 export const TIPOS_COMPROBANTE: OpcionTipo[] = [
@@ -84,7 +87,7 @@ export const TIPOS_COMPROBANTE: OpcionTipo[] = [
     // cabe en un asistente que arma un solo comprobante.
     motivo:
       "Se corre por periodo, no de una en una: se le calcula a todos los empleados y se timbran juntos.",
-    hechoEn: { etiqueta: "Ir a Nómina", segmento: "nomina" },
+    hechoEn: { etiqueta: "Ir a Nómina", href: "/facturas/nomina" },
   },
   {
     value: "T",

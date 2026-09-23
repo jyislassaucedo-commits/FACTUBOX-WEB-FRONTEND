@@ -5,6 +5,9 @@ import { NominaManualWizard } from "@/components/nomina/manual/NominaManualWizar
 import { loadEmisorContext } from "@/lib/emisorData";
 import { getEmpleados, getRegistroPatronal } from "@/lib/empleados";
 import { getPrenomina } from "@/lib/nominaManual";
+import { getEmisores } from "@/lib/emisores";
+import { resolverRfcActivo, TODOS } from "@/lib/emisorActivo";
+import { EligeEmisor } from "@/components/facturas/EligeEmisor";
 import type { PasoManualId } from "@/lib/nominaManualShared";
 
 /**
@@ -13,15 +16,15 @@ import type { PasoManualId } from "@/lib/nominaManualShared";
  * `&paso=revision` para ir directo a timbrar).
  */
 export default async function NominaManualPage({
-  params,
   searchParams,
 }: {
-  params: Promise<{ rfc: string }>;
   searchParams: Promise<{ prenomina?: string; duplicar?: string; paso?: string }>;
 }) {
-  const { rfc: rfcParam } = await params;
   const { prenomina: idPrenomina, duplicar, paso } = await searchParams;
-  const rfc = decodeURIComponent(rfcParam);
+
+  const emisores = await getEmisores();
+  const rfc = await resolverRfcActivo(emisores);
+  if (rfc === TODOS) return <EligeEmisor que="Un recibo de nómina" />;
 
   const contexto = await loadEmisorContext(rfc);
   if (!contexto) return null;
@@ -40,7 +43,7 @@ export default async function NominaManualPage({
         <CardBody className="text-center">
           <p className="text-sm font-semibold text-ink">No encontramos esa prenómina</p>
           <p className="mt-1 text-[13px] text-ink-3">{resp.DescripError || "Puede que se haya borrado."}</p>
-          <Link href={`/emisores/${encodeURIComponent(rfc)}/nomina/prenominas`} className={buttonClass("secondary", "md", "mt-4")}>
+          <Link href="/facturas/nomina/prenominas" className={buttonClass("secondary", "md", "mt-4")}>
             Volver a prenóminas
           </Link>
         </CardBody>

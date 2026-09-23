@@ -16,9 +16,6 @@ export type EmisorSectionKey =
   | "series"
   | "receptores"
   | "empleados"
-  | "nomina"
-  | "masivo"
-  | "autofacturas"
   | "disenos";
 
 export type EmisorSection = {
@@ -28,7 +25,7 @@ export type EmisorSection = {
   label: string;
   /** Texto corto para el dropdown de la barra superior. */
   description: string;
-  group: "emisor" | "catalogos" | "operacion";
+  group: "emisor" | "catalogos";
 };
 
 export const EMISOR_SECTIONS: EmisorSection[] = [
@@ -74,27 +71,15 @@ export const EMISOR_SECTIONS: EmisorSection[] = [
     description: "Plantilla para los recibos de nómina",
     group: "catalogos",
   },
-  {
-    key: "nomina",
-    segment: "nomina",
-    label: "Nómina",
-    description: "Corre y timbra la nómina del periodo",
-    group: "operacion",
-  },
-  {
-    key: "masivo",
-    segment: "masivo",
-    label: "Timbrado masivo",
-    description: "Sube una plantilla de Excel y timbra todo el lote",
-    group: "operacion",
-  },
-  {
-    key: "autofacturas",
-    segment: "autofacturas",
-    label: "Autofacturas",
-    description: "Ventas por QR pendientes de que el cliente facture",
-    group: "operacion",
-  },
+  // Aquí vivía el grupo OPERACIÓN: Nómina, Timbrado masivo y Autofacturas.
+  //
+  // Se fue a /facturas. Ninguna de las tres configura nada -- emiten
+  // comprobantes -- y tenerlas dentro del emisor obligaba a entrar por la ficha
+  // de configuración para hacer el trabajo del día. Emisores es CON QUÉ
+  // facturas; Facturas es LO QUE facturas.
+  //
+  // Las URLs viejas siguen funcionando: el middleware las redirige y de paso
+  // deja activo el emisor que traían.
   {
     key: "disenos",
     segment: "disenos",

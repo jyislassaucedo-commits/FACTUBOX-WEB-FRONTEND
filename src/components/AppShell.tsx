@@ -13,7 +13,9 @@ import { BarraProgreso } from "@/components/carga/BarraProgreso";
 import { PantallaBloqueante } from "@/components/carga/PantallaBloqueante";
 import { EMISOR_SECTIONS, emisorHref } from "@/lib/emisorNav";
 import { TimbresBadge } from "@/components/TimbresBadge";
+import { SelectorEmisor } from "@/components/SelectorEmisor";
 import type { CurrentUser } from "@/lib/currentUser";
+import type { Emisor } from "@/lib/emisores";
 import type { Timbres } from "@/lib/timbresShared";
 
 const NAV_ITEMS = [
@@ -22,26 +24,29 @@ const NAV_ITEMS = [
   { href: "/facturas", label: "Facturas" },
 ];
 
-/** RFC del emisor abierto, si el pathname es /emisores/<rfc>/... */
-function rfcDelPathname(pathname: string): string | null {
-  const m = /^\/emisores\/([^/]+)/.exec(pathname);
-  if (!m || m[1] === "nuevo") return null;
-  return decodeURIComponent(m[1]);
-}
-
 export function AppShell({
   user,
   timbres,
+  emisores,
+  rfcActivo,
   children,
 }: {
   user: CurrentUser;
   /** Saldo de timbres de la cuenta; null si no se pudo consultar. */
   timbres: Timbres | null;
+  emisores: Emisor[];
+  /** Emisor activo; "" = todos. Lo resuelve el layout desde la cookie. */
+  rfcActivo: string;
   children: React.ReactNode;
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const pathname = usePathname();
-  const rfcActual = rfcDelPathname(pathname);
+
+  // Antes esto salía del pathname con una expresión regular sobre
+  // /emisores/<rfc>. Ya no: el emisor es un estado propio y se ve en la barra,
+  // así que los atajos a sus secciones funcionan desde cualquier pantalla y no
+  // solo cuando ya estabas dentro de ese emisor.
+  const rfcActual = rfcActivo === "" ? null : rfcActivo;
 
   return (
     <ProgresoProvider>
@@ -88,6 +93,7 @@ export function AppShell({
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
+            <SelectorEmisor emisores={emisores} rfcActivo={rfcActivo} />
             {timbres && <TimbresBadge timbres={timbres} />}
             <ThemeToggle />
           </div>

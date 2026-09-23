@@ -144,10 +144,10 @@ export function NominaSection({
               {/* Dos caminos para el mismo XML: la corrida calcula el recibo
                   desde la ficha; la manual lo captura renglón por renglón y
                   se guarda como plantilla (prenómina). */}
-              <Link href={`/emisores/${encodeURIComponent(rfc)}/nomina/prenominas`} className={buttonClass("ghost")}>
+              <Link href={`/facturas/nomina/prenominas`} className={buttonClass("ghost")}>
                 Prenóminas
               </Link>
-              <Link href={`/emisores/${encodeURIComponent(rfc)}/nomina/manual`} className={buttonClass("secondary")}>
+              <Link href={`/facturas/nomina/manual`} className={buttonClass("secondary")}>
                 Nómina manual
               </Link>
               <Button variant="primary" onClick={() => setAbierto(true)}>
@@ -287,7 +287,7 @@ export function NominaSection({
                     <Td>
                       <div className="flex items-center gap-3">
                         <Link
-                          href={`/emisores/${encodeURIComponent(rfc)}/nomina/${p.Id}`}
+                          href={`/facturas/nomina/${p.Id}`}
                           className="text-[12.5px] font-semibold text-brand hover:underline"
                         >
                           Abrir
@@ -320,7 +320,7 @@ export function NominaSection({
           onCreada={(id, empleados) => {
             setRepetir(null);
             toast(`Corrida creada y calculada para ${empleados} empleados`);
-            router.push(`/emisores/${encodeURIComponent(rfc)}/nomina/${id}`);
+            router.push(`/facturas/nomina/${id}`);
           }}
         />
       )}
@@ -333,7 +333,7 @@ export function NominaSection({
           onCreada={(id) => {
             setAbierto(false);
             toast("Corrida creada");
-            router.push(`/emisores/${encodeURIComponent(rfc)}/nomina/${id}`);
+            router.push(`/facturas/nomina/${id}`);
           }}
         />
       )}

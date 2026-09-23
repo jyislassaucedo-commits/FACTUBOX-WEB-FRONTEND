@@ -93,9 +93,7 @@ export function PasoTipo({ borrador, set }: Comun) {
                 disabled={!tipo.disponible && !tipo.hechoEn}
                 onClick={() => {
                   if (tipo.hechoEn) {
-                    router.push(
-                      `/emisores/${encodeURIComponent(borrador.rfcEmisor)}/${tipo.hechoEn.segmento}`
-                    );
+                    router.push(tipo.hechoEn.href);
                     return;
                   }
                   set({

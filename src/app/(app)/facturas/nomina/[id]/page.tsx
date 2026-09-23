@@ -5,14 +5,20 @@ import { CorridaSection } from "@/components/nomina/CorridaSection";
 import { loadEmisorContext } from "@/lib/emisorData";
 import { getIncidencias, getPeriodo, getPeriodosConNombres } from "@/lib/nomina";
 import { getRegistroPatronal } from "@/lib/empleados";
+import { getEmisores } from "@/lib/emisores";
+import { resolverRfcActivo, TODOS } from "@/lib/emisorActivo";
+import { EligeEmisor } from "@/components/facturas/EligeEmisor";
 
 export default async function CorridaPage({
   params,
 }: {
-  params: Promise<{ rfc: string; id: string }>;
+  params: Promise<{ id: string }>;
 }) {
-  const { rfc: rfcParam, id } = await params;
-  const rfc = decodeURIComponent(rfcParam);
+  const { id } = await params;
+
+  const emisores = await getEmisores();
+  const rfc = await resolverRfcActivo(emisores);
+  if (rfc === TODOS) return <EligeEmisor que="Una corrida de nómina" />;
 
   const contexto = await loadEmisorContext(rfc);
   if (!contexto) return null;
@@ -33,7 +39,7 @@ export default async function CorridaPage({
           <p className="mt-1 text-[13px] text-ink-3">
             {resp.DescripError || "Puede que se haya borrado."}
           </p>
-          <Link href={`/emisores/${encodeURIComponent(rfc)}/nomina`} className={buttonClass("secondary", "md", "mt-4")}>
+          <Link href="/facturas/nomina" className={buttonClass("secondary", "md", "mt-4")}>
             Volver a nómina
           </Link>
         </CardBody>

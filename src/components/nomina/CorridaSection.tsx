@@ -113,7 +113,7 @@ export function CorridaSection({
         return;
       }
       toast("Corrida borrada");
-      router.push(`/emisores/${encodeURIComponent(rfc)}/nomina`);
+      router.push(`/facturas/nomina`);
     } finally {
       setBorrando(false);
     }
@@ -191,7 +191,7 @@ export function CorridaSection({
   return (
     <div className="space-y-4">
       <nav className="text-[12.5px] text-ink-3">
-        <Link href={`/emisores/${encodeURIComponent(rfc)}/nomina`} className="hover:text-brand">
+        <Link href={`/facturas/nomina`} className="hover:text-brand">
           Nómina
         </Link>
         <span aria-hidden> / </span>
@@ -320,7 +320,7 @@ export function CorridaSection({
           onCreada={(id, empleados) => {
             setRepitiendo(false);
             toast(`Corrida creada y calculada para ${empleados} empleados`);
-            router.push(`/emisores/${encodeURIComponent(rfc)}/nomina/${id}`);
+            router.push(`/facturas/nomina/${id}`);
           }}
         />
       )}

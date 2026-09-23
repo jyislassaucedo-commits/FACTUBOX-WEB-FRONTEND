@@ -20,7 +20,7 @@ export function PrenominasSection({ rfc, prenominas }: { rfc: string; prenominas
   const router = useRouter();
   const toast = useToast();
   const [borrando, setBorrando] = useState<string | null>(null);
-  const base = `/emisores/${encodeURIComponent(rfc)}/nomina`;
+  const base = `/facturas/nomina`;
 
   async function borrar(p: PrenominaResumen) {
     setBorrando(p.Id);

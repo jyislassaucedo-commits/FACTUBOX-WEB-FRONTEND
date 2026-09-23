@@ -195,7 +195,7 @@ export function NominaManualWizard({
       toast(n > 0 ? `Prenómina guardada con ${n} ${n === 1 ? "pendiente" : "pendientes"} para poder timbrarla` : "Prenómina guardada");
       if (!idPrenomina) {
         // La URL pasa a apuntar a la plantilla, para que recargar no la pierda.
-        router.replace(`/emisores/${encodeURIComponent(rfc)}/nomina/manual?prenomina=${body.id}&paso=${pasoActual}`);
+        router.replace(`/facturas/nomina/manual?prenomina=${body.id}&paso=${pasoActual}`);
       }
     } catch {
       toast("No se pudo conectar con el servidor", "danger");
@@ -290,7 +290,7 @@ export function NominaManualWizard({
             </p>
           )}
           <div className="mt-4 flex flex-wrap justify-center gap-2">
-            <Link href={`/emisores/${encodeURIComponent(rfc)}/nomina/prenominas`} className={buttonClass("secondary")}>
+            <Link href={`/facturas/nomina/prenominas`} className={buttonClass("secondary")}>
               Ver prenóminas
             </Link>
             <Link href="/facturas" className={buttonClass("secondary")}>
@@ -309,9 +309,9 @@ export function NominaManualWizard({
     <div className="space-y-4">
       <nav className="flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-ink-3">
         <span>
-          <Link href={`/emisores/${encodeURIComponent(rfc)}/nomina`} className="hover:text-brand">Nómina</Link>
+          <Link href={`/facturas/nomina`} className="hover:text-brand">Nómina</Link>
           <span aria-hidden> / </span>
-          <Link href={`/emisores/${encodeURIComponent(rfc)}/nomina/prenominas`} className="hover:text-brand">Prenóminas</Link>
+          <Link href={`/facturas/nomina/prenominas`} className="hover:text-brand">Prenóminas</Link>
           <span aria-hidden> / </span>
           <span className="font-medium text-ink-2">{nombre || "Nómina manual"}</span>
         </span>

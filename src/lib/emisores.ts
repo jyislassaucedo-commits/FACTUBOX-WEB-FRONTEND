@@ -1,3 +1,4 @@
+import { cache } from "react";
 import {
   callLegacyPhpApi,
   callLegacyPhpApiFormData,
@@ -50,7 +51,17 @@ export type EmisorInput = {
   estatus?: string;
 };
 
-export async function getEmisores(): Promise<Emisor[]> {
+/**
+ * Los emisores del usuario.
+ *
+ * Va envuelto en `cache()` desde que el emisor activo vive en la barra: el
+ * layout la necesita en todas las pantallas, y el tablero, la lista de facturas
+ * y el asistente de nueva factura la piden otra vez en el mismo render. Sin
+ * esto serían cuatro llamadas al backend por navegación. El cache dura lo que
+ * dura el render, así que un `router.refresh()` tras dar de alta un emisor lo
+ * trae al instante.
+ */
+export const getEmisores = cache(async (): Promise<Emisor[]> => {
   const session = await getSession();
   if (!session) return [];
 
@@ -61,7 +72,7 @@ export async function getEmisores(): Promise<Emisor[]> {
 
   if (resp.Error !== "0") return [];
   return resp.Empresas ?? [];
-}
+});
 
 export async function getEmisor(rfc: string): Promise<EmisorDetalle | null> {
   const session = await getSession();

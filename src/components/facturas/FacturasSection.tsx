@@ -32,7 +32,6 @@ import {
 import { tipoSerie } from "@/lib/emisorNav";
 import { TIPO_LABELS, TIPO_ORDEN } from "@/lib/reportesUtils";
 import type { Factura, FacturasFiltros } from "@/lib/facturasShared";
-import type { Emisor } from "@/lib/emisores";
 import { FacturaDetalle } from "./FacturaDetalle";
 import { CancelarFacturaModal } from "./CancelarFacturaModal";
 import { GenerarPdfMenu } from "./GenerarPdfMenu";
@@ -70,11 +69,9 @@ function rango(preset: "mes" | "mesPasado" | "90dias" | "anio") {
 
 export function FacturasSection({
   facturas,
-  emisores,
   filtros,
 }: {
   facturas: Factura[];
-  emisores: Emisor[];
   filtros: FacturasFiltros;
 }) {
   const router = useRouter();
@@ -279,22 +276,11 @@ export function FacturasSection({
             <Preset label="Este año" onClick={() => aplicar(rango("anio"))} />
           </div>
 
-          <div className="ml-auto w-[210px]">
-            <Select
-              aria-label="Emisor"
-              value={filtros.emisor}
-              onChange={(e) => aplicar({ emisor: e.target.value })}
-            >
-              <option value="">Todos los emisores</option>
-              {emisores.map((e) => (
-                <option key={e.Rfc} value={e.Rfc}>
-                  {e.Nombre}
-                </option>
-              ))}
-            </Select>
-          </div>
+          {/* Aquí había un Select de emisor. Se fue a la barra superior, donde
+              vale para toda la aplicación: tener dos controles para lo mismo
+              obligaba a preguntarse cuál manda. */}
 
-          <div className="w-[160px]">
+          <div className="ml-auto w-[160px]">
             <Select
               aria-label="Tipo de comprobante"
               value={filtros.tipo}

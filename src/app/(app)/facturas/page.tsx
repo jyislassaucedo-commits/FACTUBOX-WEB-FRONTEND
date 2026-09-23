@@ -1,8 +1,7 @@
-import Link from "next/link";
-import { buttonClass } from "@/components/ui/styles";
 import { FacturasSection } from "@/components/facturas/FacturasSection";
 import { getFacturas, type FacturasFiltros } from "@/lib/facturas";
 import { getEmisores } from "@/lib/emisores";
+import { resolverRfcActivo } from "@/lib/emisorActivo";
 
 const ISO = (d: Date) => d.toISOString().slice(0, 10);
 const ES_FECHA = /^\d{4}-\d{2}-\d{2}$/;
@@ -28,6 +27,10 @@ function leerFiltros(
   const hasta = uno("hasta");
 
   return {
+    // El emisor ya no es un filtro de esta pantalla: sale de la barra superior
+    // y vale para toda la aplicación. Se sigue leyendo de la URL para no
+    // romper un enlace guardado con ?emisor=, pero quien manda es el activo
+    // (ver abajo).
     emisor: uno("emisor") ?? "",
     tipo: uno("tipo") ?? "TODO",
     estatus: uno("estatus") ?? "TODO",
@@ -47,9 +50,18 @@ export default async function FacturasPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const filtros = leerFiltros(await searchParams);
+  const emisores = await getEmisores();
+  const rfcActivo = await resolverRfcActivo(emisores);
 
-  const [facturas, emisores] = await Promise.all([getFacturas(filtros), getEmisores()]);
+  // El emisor activo gana sobre el ?emisor= de la URL: si están los dos, el de
+  // la barra es el que el usuario está viendo y sería raro que la lista dijera
+  // otra cosa. Con "todos" activo (rfcActivo = "") se respeta lo que traiga la
+  // URL, que es como se llega desde el tablero al pinchar un emisor concreto.
+  const leidos = leerFiltros(await searchParams);
+  const filtros = rfcActivo ? { ...leidos, emisor: rfcActivo } : leidos;
+
+  const facturas = await getFacturas(filtros);
+  const nombreActivo = emisores.find((e) => e.Rfc === rfcActivo)?.Nombre;
 
   return (
     <div className="space-y-5">
@@ -57,15 +69,14 @@ export default async function FacturasPage({
         <div>
           <h1 className="text-xl font-bold tracking-tight text-ink">Facturas</h1>
           <p className="mt-1 text-[13px] text-ink-3">
-            Comprobantes timbrados. Haz clic en una fila para ver el CFDI completo.
+            {nombreActivo
+              ? `Lo que ha emitido ${nombreActivo}, de cualquier tipo. Haz clic en una fila para ver el CFDI completo.`
+              : "Comprobantes de todos tus emisores. Haz clic en una fila para ver el CFDI completo."}
           </p>
         </div>
-        <Link href="/facturas/nueva" className={buttonClass("primary")}>
-          Nueva factura
-        </Link>
       </div>
 
-      <FacturasSection facturas={facturas} emisores={emisores} filtros={filtros} />
+      <FacturasSection facturas={facturas} filtros={filtros} />
     </div>
   );
 }
