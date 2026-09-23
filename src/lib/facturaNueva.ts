@@ -21,6 +21,11 @@ import type { Receptor } from "@/lib/receptores";
 import type { Serie } from "@/lib/series";
 import type { ImpuestoOrigen, PagoPrevio } from "@/lib/facturasShared";
 import { IMPUESTO_IVA, RECEPTOR_PUBLICO_GENERAL } from "@/lib/catalogosSat";
+import {
+  problemasDeComplementos,
+  totalesLocales,
+  type ComplementosBorrador,
+} from "@/lib/complementos";
 
 export const RFC_PUBLICO_GENERAL = RECEPTOR_PUBLICO_GENERAL.Rfc;
 
@@ -108,22 +113,98 @@ export const TIPOS_RELACION = [
   { value: "07", label: "07 - CFDI por aplicación de anticipo" },
 ] as const;
 
+/**
+ * c_TipoRelacion para una factura de ingreso. Las de nota de crédito, débito
+ * y devolución (01, 02, 03) no están: esas se hacen desde "Nota de crédito".
+ */
+export const TIPOS_RELACION_FACTURA = [
+  { value: "04", label: "04 - Sustitución de los CFDI previos" },
+  { value: "05", label: "05 - Traslados de mercancías facturados previamente" },
+  { value: "06", label: "06 - Factura generada por los traslados previos" },
+  { value: "07", label: "07 - CFDI por aplicación de anticipo" },
+  { value: "08", label: "08 - Factura generada por pagos en parcialidades" },
+  { value: "09", label: "09 - Factura generada por pagos diferidos" },
+] as const;
+
+/** c_Exportacion. */
+export const EXPORTACIONES = [
+  { value: "01", label: "01 - No aplica" },
+  { value: "02", label: "02 - Definitiva con clave A1" },
+  { value: "03", label: "03 - Temporal" },
+  { value: "04", label: "04 - Definitiva con clave distinta a A1" },
+] as const;
+
+/** c_Periodicidad (información global). */
+export const PERIODICIDADES = [
+  { value: "01", label: "01 - Diario" },
+  { value: "02", label: "02 - Semanal" },
+  { value: "03", label: "03 - Quincenal" },
+  { value: "04", label: "04 - Mensual" },
+  { value: "05", label: "05 - Bimestral" },
+] as const;
+
+/** c_Meses: 01-12 para todas las periodicidades menos la bimestral, que usa 13-18. */
+export const MESES = [
+  { value: "01", label: "01 - Enero" },
+  { value: "02", label: "02 - Febrero" },
+  { value: "03", label: "03 - Marzo" },
+  { value: "04", label: "04 - Abril" },
+  { value: "05", label: "05 - Mayo" },
+  { value: "06", label: "06 - Junio" },
+  { value: "07", label: "07 - Julio" },
+  { value: "08", label: "08 - Agosto" },
+  { value: "09", label: "09 - Septiembre" },
+  { value: "10", label: "10 - Octubre" },
+  { value: "11", label: "11 - Noviembre" },
+  { value: "12", label: "12 - Diciembre" },
+  { value: "13", label: "13 - Enero-Febrero" },
+  { value: "14", label: "14 - Marzo-Abril" },
+  { value: "15", label: "15 - Mayo-Junio" },
+  { value: "16", label: "16 - Julio-Agosto" },
+  { value: "17", label: "17 - Septiembre-Octubre" },
+  { value: "18", label: "18 - Noviembre-Diciembre" },
+] as const;
+
+export function mesesPara(periodicidad: string) {
+  return MESES.filter((m) => (periodicidad === "05") === Number(m.value) > 12);
+}
+
+/** Largo máximo de las observaciones (addenda SistemaLocal). */
+export const OBSERVACIONES_MAX = 500;
+
 /* -------------------------------------------------------------------------- */
 /* Borrador                                                                   */
 /* -------------------------------------------------------------------------- */
 
 export type FacturaBorrador = {
   tipo: TipoComprobante;
+  /**
+   * CFDI relacionados. En la nota de crédito es obligatorio (paso "origen");
+   * en la factura es opcional y solo cuenta si `relacionar` es true.
+   */
   relacion: { tipoRelacion: string; uuids: string[] };
+  relacionar: boolean;
   rfcEmisor: string;
   serie: string;
   folio: string;
+  /** Si es false, se usa `fechaEmision` en vez de la fecha y hora de timbrar. */
+  fechaActual: boolean;
+  /** "YYYY-MM-DDTHH:mm", como lo entrega un <input type="datetime-local">. */
+  fechaEmision: string;
+  moneda: string;
+  tipoCambio: string;
+  exportacion: string;
   formaPago: string;
   metodoPago: string;
   condicionesDePago: string;
   receptorRfc: string;
   usoCfdi: string;
+  /** Información global: solo aplica a Público en general en una factura. */
+  global: { periodicidad: string; meses: string; anio: string };
   conceptos: ConceptoInput[];
+  complementos: ComplementosBorrador;
+  /** Van en la addenda SistemaLocal, como en el escritorio. No las revisa el SAT. */
+  observaciones: string;
   /** Solo para tipo "P". */
   pago: PagoBorrador;
 };
@@ -194,17 +275,53 @@ export const CONCEPTO_VACIO: ConceptoInput = {
 export const BORRADOR_INICIAL: FacturaBorrador = {
   tipo: "I",
   relacion: { tipoRelacion: "01", uuids: [] },
+  relacionar: false,
   rfcEmisor: "",
   serie: "",
   folio: "",
+  fechaActual: true,
+  fechaEmision: "",
+  moneda: "MXN",
+  tipoCambio: "",
+  exportacion: "01",
   formaPago: "01",
   metodoPago: "PUE",
   condicionesDePago: "",
   receptorRfc: RFC_PUBLICO_GENERAL,
   usoCfdi: RECEPTOR_PUBLICO_GENERAL.UsoCFDI,
+  global: { periodicidad: "04", meses: "", anio: "" },
   conceptos: [{ ...CONCEPTO_VACIO }],
+  complementos: {},
+  observaciones: "",
   pago: { ...PAGO_VACIO },
 };
+
+/**
+ * Borrador nuevo para un tipo de comprobante, con lo que depende de hoy (mes
+ * y año de la información global) y del tipo (relación y uso del CFDI).
+ */
+export function borradorPara(tipo: TipoComprobante, base: Partial<FacturaBorrador> = {}): FacturaBorrador {
+  const hoy = new Date();
+  return {
+    ...BORRADOR_INICIAL,
+    conceptos: [{ ...CONCEPTO_VACIO }],
+    pago: { ...PAGO_VACIO },
+    global: {
+      periodicidad: "04",
+      meses: String(hoy.getMonth() + 1).padStart(2, "0"),
+      anio: String(hoy.getFullYear()),
+    },
+    ...base,
+    tipo,
+    relacion: { tipoRelacion: tipo === "E" ? "01" : "04", uuids: [] },
+    usoCfdi: tipo === "E" ? "G02" : BORRADOR_INICIAL.usoCfdi,
+  };
+}
+
+/** ¿Este borrador lleva información global? Público en general en una factura. */
+export function llevaGlobal(b: Pick<FacturaBorrador, "tipo" | "receptorRfc">) {
+  return b.tipo === "I" && b.receptorRfc === RFC_PUBLICO_GENERAL;
+}
 
 export const RECEPTOR_GENERICO: Receptor = {
   Rfc: RECEPTOR_PUBLICO_GENERAL.Rfc,
@@ -218,73 +335,130 @@ export const RECEPTOR_GENERICO: Receptor = {
 /* Pasos                                                                      */
 /* -------------------------------------------------------------------------- */
 
-export type PasoId = "tipo" | "emisor" | "receptor" | "conceptos" | "pagos" | "revision";
-
-export const PASOS: Array<{ id: PasoId; titulo: string; descripcion: string }> = [
-  { id: "tipo", titulo: "Tipo", descripcion: "Qué comprobante vas a emitir" },
-  { id: "emisor", titulo: "Emisor", descripcion: "Quién factura, serie y pago" },
-  { id: "receptor", titulo: "Receptor", descripcion: "A quién le facturas" },
-  { id: "conceptos", titulo: "Conceptos", descripcion: "Qué estás cobrando" },
-  { id: "revision", titulo: "Revisión", descripcion: "Confirma antes de timbrar" },
-];
-
-/** Un CFDI de Pago no tiene receptor propio que capturar (viene de la
- * factura que se paga) ni conceptos reales - "Pagos" los reemplaza a ambos. */
-const PASOS_PAGO: Array<{ id: PasoId; titulo: string; descripcion: string }> = [
-  { id: "tipo", titulo: "Tipo", descripcion: "Qué comprobante vas a emitir" },
-  { id: "emisor", titulo: "Emisor", descripcion: "Quién factura, serie y folio" },
-  { id: "pagos", titulo: "Pago", descripcion: "Qué factura se paga y cuánto" },
-  { id: "revision", titulo: "Revisión", descripcion: "Confirma antes de timbrar" },
-];
-
-export function pasosPara(
-  tipo: TipoComprobante
-): Array<{ id: PasoId; titulo: string; descripcion: string }> {
-  return tipo === "P" ? PASOS_PAGO : PASOS;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Pasos visibles                                                             */
-/* -------------------------------------------------------------------------- */
-
 /*
-   Los PasoId de arriba siguen siendo la granularidad con la que se AGRUPAN los
-   problemas: "falta el receptor" y "falta un concepto" son cosas distintas y
-   conviene decirlo por separado.
+   Un paso es una pantalla y una sola pregunta. Antes eran tres pantallas y la
+   del medio juntaba emisor, receptor, conceptos y forma de pago: un
+   formulario tan largo que cansaba. Ahora cada tipo tiene su lista de pasos
+   cortos, y el riel de la izquierda enseña en verde los que ya quedaron.
 
-   Lo que cambia es cuántas PANTALLAS ve el usuario. Eran cinco (tipo, emisor,
-   receptor, conceptos, revisión) y son tres, porque emisor, receptor y
-   conceptos son todos lo mismo: capturar el comprobante. Pasarlos de uno en
-   uno obligaba a tres clics de "Continuar" para llenar una factura de dos
-   renglones.
-
-   Y hace sitio para lo que faltaba: subir una plantilla de Excel es OTRA FORMA
-   DE CAPTURAR, no una sección aparte. Vive en el paso "Cómo", junto a
-   capturarla a mano.
+   El tipo de comprobante ya no es un paso: se elige en el menú antes de
+   entrar, y cambiarlo es volver al menú.
 */
 
-export type PasoVistaId = "tipo" | "como" | "revision";
+export type PasoId =
+  | "emisor"
+  | "origen"
+  | "receptor"
+  | "conceptos"
+  | "pago"
+  | "relacion"
+  | "complementos"
+  | "pagos"
+  | "revision";
 
-export const PASOS_VISTA: Array<{ id: PasoVistaId; titulo: string; descripcion: string }> = [
-  { id: "tipo", titulo: "Qué", descripcion: "Qué comprobante vas a emitir" },
-  { id: "como", titulo: "Cómo", descripcion: "Una a una, o muchas de una plantilla" },
-  { id: "revision", titulo: "Revisar y timbrar", descripcion: "Confirma antes de timbrar" },
-];
+export type Paso = {
+  id: PasoId;
+  /** Nombre corto, para el riel. */
+  titulo: string;
+  /** La pregunta que hace la pantalla. */
+  pregunta: string;
+  /** Por qué se pide, en una línea. */
+  porque: string;
+};
 
-/** Qué pasos internos alimentan cada pantalla. */
-export function internosDe(vista: PasoVistaId, tipo: TipoComprobante): PasoId[] {
-  if (vista === "tipo") return ["tipo"];
-  if (vista === "revision") return ["revision"];
-  // Un CFDI de Pago no tiene receptor propio ni conceptos que capturar: el
-  // paso "pagos" los reemplaza a ambos.
-  return tipo === "P" ? ["emisor", "pagos"] : ["emisor", "receptor", "conceptos"];
-}
+const EMISOR: Paso = {
+  id: "emisor",
+  titulo: "Emisor y serie",
+  pregunta: "¿Desde qué empresa facturas?",
+  porque: "Tomamos el emisor que tienes activo. Cámbialo solo si este comprobante sale de otra empresa.",
+};
+const REVISION: Paso = {
+  id: "revision",
+  titulo: "Revisar y timbrar",
+  pregunta: "Revisa y timbra",
+  porque: "Así se va a timbrar. Cualquier dato lo puedes cambiar desde aquí.",
+};
 
-/** En qué pantalla se corrige un problema de este paso interno. */
-export function vistaDe(paso: PasoId): PasoVistaId {
-  if (paso === "tipo") return "tipo";
-  if (paso === "revision") return "revision";
-  return "como";
+export const PASOS_POR_TIPO: Record<TipoComprobante, Paso[]> = {
+  I: [
+    EMISOR,
+    {
+      id: "receptor",
+      titulo: "Receptor",
+      pregunta: "¿A quién le facturas?",
+      porque: "Elige el receptor de la factura. Sus datos fiscales ya están guardados.",
+    },
+    {
+      id: "conceptos",
+      titulo: "Conceptos",
+      pregunta: "¿Qué vendiste?",
+      porque: "Cada producto o servicio va en un concepto. Los impuestos se calculan solos.",
+    },
+    {
+      id: "pago",
+      titulo: "Forma de pago",
+      pregunta: "¿Cómo te van a pagar?",
+      porque: "Esto define si después tendrás que emitir complementos de pago.",
+    },
+    {
+      id: "relacion",
+      titulo: "CFDI relacionados",
+      pregunta: "¿Esta factura se relaciona con otra?",
+      porque:
+        "Por ejemplo, si sustituye a una factura cancelada o aplica un anticipo. Si no, sigue adelante.",
+    },
+    {
+      id: "complementos",
+      titulo: "Complementos",
+      pregunta: "¿Lleva algún complemento?",
+      porque: "Agrega solo los que tu factura necesite. La mayoría no lleva ninguno.",
+    },
+    REVISION,
+  ],
+  E: [
+    EMISOR,
+    {
+      id: "origen",
+      titulo: "Factura que corrige",
+      pregunta: "¿Qué factura corriges?",
+      porque: "La nota de crédito siempre va ligada a una factura que ya emitiste.",
+    },
+    {
+      id: "receptor",
+      titulo: "Receptor",
+      pregunta: "¿A quién va la nota de crédito?",
+      porque: "Normalmente es el mismo receptor de la factura que corriges.",
+    },
+    {
+      id: "conceptos",
+      titulo: "Conceptos",
+      pregunta: "¿Qué descuentas o devuelves?",
+      porque: "Registra el importe que le regresas al cliente.",
+    },
+    {
+      id: "pago",
+      titulo: "Forma de pago",
+      pregunta: "¿Cómo se lo regresas?",
+      porque: "Normalmente es la misma forma de pago de la factura original.",
+    },
+    REVISION,
+  ],
+  // El complemento de pago se rediseña aparte; mientras, sus pantallas de
+  // siempre entran al riel tal cual.
+  P: [
+    EMISOR,
+    {
+      id: "pagos",
+      titulo: "Pago",
+      pregunta: "¿Qué factura te pagaron y cuánto?",
+      porque: "Solo aparecen facturas a crédito (PPD) que todavía tienen saldo.",
+    },
+    REVISION,
+  ],
+};
+
+export function pasosPara(tipo: TipoComprobante): Paso[] {
+  return PASOS_POR_TIPO[tipo];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -379,6 +553,23 @@ export function problemasDeConceptos(conceptos: ConceptoInput[]): Problema[] {
   return conceptosP;
 }
 
+/**
+ * Revisa la fecha de emisión elegida a mano. Son las mismas reglas que aplica
+ * REGLAS_CFDI40 en el servidor: no puede estar en el futuro (con 5 minutos de
+ * holgura) ni tener más de 72 horas, porque el PAC la rechaza.
+ */
+function problemaDeFecha(fecha: string, ahora = new Date()): string | null {
+  if (!fecha) return "Escribe la fecha de emisión o usa la de hoy.";
+  const f = new Date(fecha);
+  if (Number.isNaN(f.getTime())) return "La fecha de emisión no es válida.";
+  const diferencia = ahora.getTime() - f.getTime();
+  if (diferencia < -5 * 60 * 1000) return "La fecha de emisión no puede estar en el futuro.";
+  if (diferencia > 72 * 60 * 60 * 1000) {
+    return "El SAT no acepta comprobantes con fecha de más de 72 horas atrás.";
+  }
+  return null;
+}
+
 /** Todos los problemas del borrador, agrupados por paso. */
 export function validar(
   borrador: FacturaBorrador,
@@ -386,13 +577,9 @@ export function validar(
 ): Record<PasoId, Problema[]> {
   const emisor = ctx.emisores.find((e) => e.Rfc === borrador.rfcEmisor) ?? null;
   const receptor = receptorDe(borrador, ctx);
+  const esPago = borrador.tipo === "P";
 
-  const tipo: Problema[] = [];
-  const opcion = TIPOS_COMPROBANTE.find((t) => t.value === borrador.tipo);
-  if (!opcion?.disponible) {
-    tipo.push({ campo: "tipo", mensaje: "Ese tipo de comprobante todavía no se puede emitir aquí." });
-  }
-
+  /* ---------- Emisor y serie (y fecha, moneda, exportación) ---------- */
   const emisorP: Problema[] = [];
   if (!borrador.rfcEmisor) {
     emisorP.push({ campo: "rfcEmisor", mensaje: "Elige el emisor de la factura." });
@@ -416,39 +603,55 @@ export function validar(
   if (!borrador.folio) {
     emisorP.push({ campo: "folio", mensaje: "No se pudo calcular el folio. Vuelve a elegir la serie." });
   }
-  // Un CFDI de Pago no lleva FormaPago/MetodoPago a nivel comprobante (el
-  // SAT los rechaza ahí): la forma de pago real va dentro de cada Pago del
-  // complemento, capturada en el paso "Pago".
-  if (borrador.tipo !== "P" && !borrador.formaPago) {
-    emisorP.push({ campo: "formaPago", mensaje: "Elige la forma de pago." });
+  if (!esPago) {
+    if (!borrador.fechaActual) {
+      const error = problemaDeFecha(borrador.fechaEmision);
+      if (error) emisorP.push({ campo: "fechaEmision", mensaje: error });
+    }
+    if (borrador.moneda !== "MXN" && !(parseFloat(borrador.tipoCambio) > 0)) {
+      emisorP.push({
+        campo: "tipoCambio",
+        mensaje: `Con ${borrador.moneda} hace falta el tipo de cambio.`,
+      });
+    }
   }
-  if (borrador.tipo !== "P" && !borrador.metodoPago) {
-    emisorP.push({ campo: "metodoPago", mensaje: "Elige el método de pago." });
-  }
+
+  /* ---------- Factura que corrige (nota de crédito) ---------- */
+  const origenP: Problema[] = [];
   if (borrador.tipo === "E") {
     if (borrador.relacion.uuids.length === 0) {
-      emisorP.push({
+      origenP.push({
         campo: "relacion",
         mensaje: "Una nota de crédito debe decir qué factura corrige: relaciona al menos un CFDI.",
       });
     }
-    const invalidos = borrador.relacion.uuids.filter((u) => !esUuid(u));
-    if (invalidos.length > 0) {
-      emisorP.push({
-        campo: "relacion",
-        mensaje: `Hay ${invalidos.length} folio(s) fiscal(es) con formato inválido.`,
-      });
-    }
     if (!borrador.relacion.tipoRelacion) {
-      emisorP.push({ campo: "tipoRelacion", mensaje: "Elige el tipo de relación." });
+      origenP.push({ campo: "tipoRelacion", mensaje: "Elige por qué corriges la factura." });
     }
   }
 
+  /* ---------- CFDI relacionados (factura) ---------- */
+  const relacionP: Problema[] = [];
+  if (borrador.tipo === "I" && borrador.relacionar && borrador.relacion.uuids.length === 0) {
+    relacionP.push({
+      campo: "relacion",
+      mensaje: "Elige al menos una factura relacionada o cambia a “No se relaciona”.",
+    });
+  }
+  const relaciona = borrador.tipo === "E" || (borrador.tipo === "I" && borrador.relacionar);
+  const invalidos = relaciona ? borrador.relacion.uuids.filter((u) => !esUuid(u)) : [];
+  if (invalidos.length > 0) {
+    (borrador.tipo === "E" ? origenP : relacionP).push({
+      campo: "relacion",
+      mensaje: `Hay ${invalidos.length} folio(s) fiscal(es) con formato inválido.`,
+    });
+  }
+
+  /* ---------- Receptor ---------- */
   // El receptor de un CFDI de Pago no se elige: es el mismo de la factura
-  // que se está pagando (ver receptorDe). Este paso ni siquiera se muestra
-  // para tipo "P" (ver pasosPara), así que no tiene nada que validar.
+  // que se está pagando (ver receptorDe).
   const receptorP: Problema[] = [];
-  if (borrador.tipo !== "P") {
+  if (!esPago) {
     if (!borrador.receptorRfc) {
       receptorP.push({ campo: "receptorRfc", mensaje: "Elige a quién le facturas." });
     } else if (!receptor) {
@@ -470,12 +673,54 @@ export function validar(
     if (!borrador.usoCfdi) {
       receptorP.push({ campo: "usoCfdi", mensaje: "Elige el uso que le dará el receptor." });
     }
+    if (llevaGlobal(borrador)) {
+      const g = borrador.global;
+      if (!g.periodicidad) {
+        receptorP.push({ campo: "global.periodicidad", mensaje: "Elige la periodicidad de la información global." });
+      }
+      if (!mesesPara(g.periodicidad).some((m) => m.value === g.meses)) {
+        receptorP.push({
+          campo: "global.meses",
+          mensaje:
+            g.periodicidad === "05"
+              ? "Con periodicidad bimestral elige un bimestre (13 a 18)."
+              : "Elige el mes de la información global.",
+        });
+      }
+      const anio = Number(g.anio);
+      if (!/^\d{4}$/.test(g.anio) || anio > new Date().getFullYear()) {
+        receptorP.push({ campo: "global.anio", mensaje: "Elige el año de la información global." });
+      }
+    }
   }
 
-  const conceptosP: Problema[] = borrador.tipo !== "P" ? problemasDeConceptos(borrador.conceptos) : [];
+  /* ---------- Conceptos ---------- */
+  const conceptosP: Problema[] = esPago ? [] : problemasDeConceptos(borrador.conceptos);
 
+  /* ---------- Forma de pago ---------- */
+  // Un CFDI de Pago no lleva FormaPago/MetodoPago a nivel comprobante (el SAT
+  // los rechaza ahí): la forma real va dentro de cada Pago del complemento.
+  const pagoP: Problema[] = [];
+  if (!esPago) {
+    if (!borrador.metodoPago) {
+      pagoP.push({ campo: "metodoPago", mensaje: "Elige cómo te van a pagar." });
+    }
+    if (!borrador.formaPago) {
+      pagoP.push({ campo: "formaPago", mensaje: "Elige la forma de pago." });
+    } else if (borrador.metodoPago === "PPD" && borrador.formaPago !== "99") {
+      pagoP.push({ campo: "formaPago", mensaje: "Con PPD la forma de pago debe ser 99 Por definir." });
+    } else if (borrador.metodoPago === "PUE" && borrador.formaPago === "99") {
+      pagoP.push({ campo: "formaPago", mensaje: "Con PUE elige la forma de pago real, no 99 Por definir." });
+    }
+  }
+
+  /* ---------- Complementos ---------- */
+  const complementosP: Problema[] =
+    borrador.tipo === "I" ? problemasDeComplementos(borrador.complementos) : [];
+
+  /* ---------- Complemento de pago ---------- */
   const pagosP: Problema[] = [];
-  if (borrador.tipo === "P") {
+  if (esPago) {
     const p = borrador.pago;
     if (!p.facturaOrigen) {
       pagosP.push({ campo: "facturaOrigen", mensaje: "Elige qué factura se va a pagar." });
@@ -513,14 +758,25 @@ export function validar(
     }
   }
 
+  /* ---------- Revisión: solo las observaciones son suyas ---------- */
+  const revisionP: Problema[] = [];
+  if (borrador.observaciones.length > OBSERVACIONES_MAX) {
+    revisionP.push({
+      campo: "observaciones",
+      mensaje: `Las observaciones pueden tener hasta ${OBSERVACIONES_MAX} caracteres.`,
+    });
+  }
+
   return {
-    tipo,
     emisor: emisorP,
+    origen: origenP,
     receptor: receptorP,
     conceptos: conceptosP,
+    pago: pagoP,
+    relacion: relacionP,
+    complementos: complementosP,
     pagos: pagosP,
-    // La revisión no valida nada propio: hereda lo de los pasos anteriores.
-    revision: [],
+    revision: revisionP,
   };
 }
 
@@ -557,7 +813,11 @@ export function etiquetaTipo(tipo: string) {
 /* Totales                                                                    */
 /* -------------------------------------------------------------------------- */
 
-export function calcularTotales(conceptos: ConceptoInput[]) {
+/**
+ * Totales del comprobante. Los impuestos locales (complemento implocal) van
+ * aparte: el SAT los suma al Total además de los federales.
+ */
+export function calcularTotales(conceptos: ConceptoInput[], complementos?: ComplementosBorrador) {
   let subtotal = 0;
   let trasladados = 0;
   let retenidos = 0;
@@ -572,11 +832,15 @@ export function calcularTotales(conceptos: ConceptoInput[]) {
     }
   }
 
+  const locales = totalesLocales(complementos, subtotal);
+
   return {
     subtotal,
     trasladados,
     retenidos,
-    total: subtotal + trasladados - retenidos,
+    localesTrasladados: locales.traslados,
+    localesRetenidos: locales.retenciones,
+    total: subtotal + trasladados - retenidos + locales.traslados - locales.retenciones,
   };
 }
 

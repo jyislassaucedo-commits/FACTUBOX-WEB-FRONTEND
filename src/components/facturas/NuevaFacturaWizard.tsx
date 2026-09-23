@@ -3,46 +3,41 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useProgresoManual } from "@/components/carga/useAccionServidor";
 import Link from "next/link";
-import {
-  Button,
-  Card,
-  CardBody,
-  Note,
-  Pill,
-  Stepper,
-  buttonClass,
-  cx,
-  useToast,
-  type PasoEstado,
-} from "@/components/ui";
+import { Button, Card, CardBody, Note, Segmented, buttonClass, cx, useToast } from "@/components/ui";
+import { FORMAS_PAGO } from "@/lib/catalogosSat";
 import { money } from "@/lib/cfdi";
 import {
-  BORRADOR_INICIAL,
-  CONCEPTO_VACIO,
-  RFC_PUBLICO_GENERAL,
+  MESES,
+  PERIODICIDADES,
+  TIPOS_RELACION,
+  TIPOS_RELACION_FACTURA,
+  borradorPara,
   calcularTotales,
   construirDoctoRelacionado,
-  etiquetaTipo,
-  internosDe,
+  llevaGlobal,
   pasosPara,
   receptorDe,
   validar,
-  vistaDe,
-  PASOS_VISTA,
   type FacturaBorrador,
   type ModoCaptura,
-  type PasoVistaId,
+  type PasoId,
 } from "@/lib/facturaNueva";
+import { activos } from "@/lib/complementos";
+import { PasoPagos, ResultadoTimbrado, RevisionSat } from "./PasosNuevaFactura";
 import {
+  PasoComplementos,
   PasoConceptos,
   PasoEmisor,
-  PasoPagos,
+  PasoFormaPago,
+  PasoOrigen,
   PasoReceptor,
+  PasoRelacion,
   PasoRevision,
-  PasoTipo,
-  ResultadoTimbrado,
-  RevisionSat,
-} from "./PasosNuevaFactura";
+  type FilaResumen,
+} from "./nueva/Pasos";
+import { IconoTipo, MenuTipos } from "./nueva/MenuTipos";
+import { RielPasos, type EstadoPaso, type PasoRiel } from "./nueva/RielPasos";
+import { DocumentoPreview } from "./nueva/DocumentoPreview";
 import { ElegirModo } from "./ElegirModo";
 import { RelacionarFacturaModal } from "./RelacionarFacturaModal";
 import { ReceptorFormModal } from "@/components/receptores/ReceptorFormModal";
@@ -52,6 +47,13 @@ import type { Serie } from "@/lib/series";
 import type { TimbrarResult, TipoComprobante, ValidarResult } from "@/lib/timbrado";
 import { TIMBRES_BAJOS, type Timbres } from "@/lib/timbresShared";
 
+/*
+   Nueva factura: primero el menú "¿Qué quieres hacer?" y luego, según el tipo,
+   sus pasos cortos (una pregunta por pantalla) con el riel a la izquierda y el
+   comprobante armándose a la derecha. Es la propuesta D que el usuario aprobó
+   en el mockup.
+*/
+
 /**
  * Lo que devolvió la última revisión contra el SAT, junto con la `clave` del
  * comprobante que se revisó. Si el borrador cambia, la clave deja de coincidir
@@ -59,12 +61,23 @@ import { TIMBRES_BAJOS, type Timbres } from "@/lib/timbresShared";
  * factura distinta.
  *
  * `motivo` es distinto de "el comprobante está mal": significa que no se pudo
- * revisar. Ese caso no bloquea el timbrado — si nuestra revisión se cae, no es
- * razón para dejar a alguien sin poder facturar.
+ * revisar. Ese caso no bloquea el timbrado.
  */
 type ResultadoRevision =
   | { clave: string; datos: ValidarResult }
   | { clave: string; motivo: string };
+
+const NOMBRE_TIPO: Record<TipoComprobante, string> = {
+  I: "Factura",
+  E: "Nota de crédito",
+  P: "Complemento de pago",
+};
+
+const TIMBRADO_TIPO: Record<TipoComprobante, string> = {
+  I: "Factura timbrada",
+  E: "Nota de crédito timbrada",
+  P: "Complemento de pago timbrado",
+};
 
 export function NuevaFacturaWizard({
   emisores,
@@ -76,74 +89,53 @@ export function NuevaFacturaWizard({
 }: {
   emisores: Emisor[];
   timbres: Timbres | null;
-  /** Vienen de "Pagar factura" en el detalle: saltan directo al paso de pago. */
+  /** Vienen de "Pagar factura" en el detalle: entran directo al complemento de pago. */
   origenRfc?: string;
   origenUuid?: string;
-  /**
-   * De los atajos: el botón dividido y el menú de Facturas llevan directo al
-   * tipo más frecuente, y "Subir plantilla" entra ya en el modo de Excel. Son
-   * atajos, no otra pantalla: el asistente es el mismo y el usuario puede
-   * volver atrás y cambiar lo que traía decidido.
-   */
+  /** Atajos del menú de Facturas: entran directo a un tipo, sin pasar por el menú. */
   tipoInicial?: TipoComprobante;
   modoInicial?: ModoCaptura;
 }) {
   const toast = useToast();
 
-  // "Pagar factura" manda el RFC del emisor de esa factura; si de verdad es
-  // uno de los emisores del usuario, se preselecciona junto con el tipo
-  // "P" y se salta directo al paso de pago (ver autoUuid en PasoPagos).
   const emisorOrigenValido = origenRfc && emisores.some((e) => e.Rfc === origenRfc);
+  const tipoDeEntrada: TipoComprobante | null =
+    emisorOrigenValido && origenUuid ? "P" : (tipoInicial ?? null);
 
-  /** Un atajo con el tipo ya decidido también salta el primer paso. */
-  const entraDecidido = Boolean((emisorOrigenValido && origenUuid) || tipoInicial);
-
-  const [borrador, setBorrador] = useState<FacturaBorrador>(() => ({
-    ...BORRADOR_INICIAL,
-    rfcEmisor: emisorOrigenValido ? origenRfc! : (emisores[0]?.Rfc ?? ""),
-    tipo:
-      emisorOrigenValido && origenUuid ? "P" : (tipoInicial ?? BORRADOR_INICIAL.tipo),
-  }));
-  const [pasoActual, setPasoActual] = useState<PasoVistaId>(
-    // Desde "Pagar factura" se entra con la factura origen ya elegida: el tipo
-    // está decidido y lo que toca es capturar.
-    entraDecidido ? "como" : "tipo"
+  const [borrador, setBorrador] = useState<FacturaBorrador>(() =>
+    borradorPara(tipoDeEntrada ?? "I", {
+      rfcEmisor: emisorOrigenValido ? origenRfc! : (emisores[0]?.Rfc ?? ""),
+    })
   );
-  /** Pasos donde el usuario ya intentó avanzar: solo ahí se pintan los errores. */
-  const [intentados, setIntentados] = useState<PasoVistaId[]>([]);
-  /**
-   * Cómo se capturan los comprobantes. Vive aquí y no en el borrador porque no
-   * es parte del CFDI: es la forma de llenarlo.
-   */
+  /** Sin tipo decidido se empieza en el menú; con atajo, directo al primer paso. */
+  const [enMenu, setEnMenu] = useState(tipoDeEntrada === null && modoInicial !== "plantilla");
   const [modo, setModo] = useState<ModoCaptura>(modoInicial ?? "una");
+  const [pasoActual, setPasoActual] = useState<PasoId>("emisor");
+  /** Pasos que el usuario ya dejó atrás: el riel los pinta en verde o con "!". */
+  const [visitados, setVisitados] = useState<PasoId[]>([]);
+  /** Pasos donde intentó avanzar: solo ahí se señalan los errores junto al campo. */
+  const [intentados, setIntentados] = useState<PasoId[]>([]);
+  /** En pantallas medianas el comprobante se abre con un botón. */
+  const [docAbierto, setDocAbierto] = useState(false);
 
-  /**
-   * Series y receptores se cachean junto con la "clave" de la consulta que los
-   * produjo. Derivar el estado de carga comparando claves evita un setState
-   * síncrono dentro del efecto, que la regla react-hooks/set-state-in-effect
-   * de esta versión de Next rechaza.
-   */
+  /* ---------- Series, receptores y folio (igual que antes) --------------- */
+  // Se cachean junto con la "clave" de la consulta que los produjo: derivar el
+  // estado de carga comparando claves evita un setState síncrono dentro del
+  // efecto, que la regla react-hooks/set-state-in-effect rechaza.
   const claveSeries = `${borrador.rfcEmisor}|${borrador.tipo}`;
-  const [cacheSeries, setCacheSeries] = useState<{ clave: string; series: Serie[] } | null>(
-    null
-  );
+  const [cacheSeries, setCacheSeries] = useState<{ clave: string; series: Serie[] } | null>(null);
   const series = useMemo(
     () => (cacheSeries?.clave === claveSeries ? cacheSeries.series : []),
     [cacheSeries, claveSeries]
   );
   const cargandoSeries = Boolean(borrador.rfcEmisor) && cacheSeries?.clave !== claveSeries;
 
-  const [cacheReceptores, setCacheReceptores] = useState<{
-    clave: string;
-    receptores: Receptor[];
-  } | null>(null);
+  const [cacheReceptores, setCacheReceptores] = useState<{ clave: string; receptores: Receptor[] } | null>(null);
   const receptores = useMemo(
-    () =>
-      cacheReceptores?.clave === borrador.rfcEmisor ? cacheReceptores.receptores : [],
+    () => (cacheReceptores?.clave === borrador.rfcEmisor ? cacheReceptores.receptores : []),
     [cacheReceptores, borrador.rfcEmisor]
   );
-  const cargandoReceptores =
-    Boolean(borrador.rfcEmisor) && cacheReceptores?.clave !== borrador.rfcEmisor;
+  const cargandoReceptores = Boolean(borrador.rfcEmisor) && cacheReceptores?.clave !== borrador.rfcEmisor;
 
   const [modalRelacion, setModalRelacion] = useState(false);
   const [modalReceptor, setModalReceptor] = useState(false);
@@ -151,33 +143,21 @@ export function NuevaFacturaWizard({
   const progreso = useProgresoManual();
   const [errorEnvio, setErrorEnvio] = useState<string | null>(null);
   const [resultado, setResultado] = useState<TimbrarResult | null>(null);
-
-  /**
-   * Revisión del comprobante contra las reglas del SAT, hecha en el servidor.
-   * Se guarda igual que las series y los receptores: junto con la clave de la
-   * consulta que la produjo, para poder derivar "está revisando" comparando
-   * claves en vez de con un setState dentro del efecto.
-   */
   const [revision, setRevision] = useState<ResultadoRevision | null>(null);
-  /** Clave cuya revisión está en vuelo, para no pedirla dos veces. */
   const revisionEnVuelo = useRef<string | null>(null);
 
   function set(cambios: Partial<FacturaBorrador>) {
     setBorrador((prev) => ({ ...prev, ...cambios }));
   }
 
-  /* ---------- Series: dependen del emisor Y del tipo de comprobante ------- */
   useEffect(() => {
     if (!borrador.rfcEmisor) return;
     let vivo = true;
-
     fetch(`/api/empresas/${encodeURIComponent(borrador.rfcEmisor)}/series`)
       .then((res) => res.json())
       .then((body) => {
         if (!vivo) return;
-        const delTipo: Serie[] = (body.series ?? []).filter(
-          (s: Serie) => s.Tipo === borrador.tipo
-        );
+        const delTipo: Serie[] = (body.series ?? []).filter((s: Serie) => s.Tipo === borrador.tipo);
         setCacheSeries({ clave: claveSeries, series: delTipo });
         // Autoselecciona si solo hay una: es el caso común y ahorra un clic.
         setBorrador((prev) =>
@@ -186,35 +166,27 @@ export function NuevaFacturaWizard({
             : { ...prev, serie: delTipo.length === 1 ? delTipo[0].Nombre : "", folio: "" }
         );
       });
-
     return () => {
       vivo = false;
     };
   }, [borrador.rfcEmisor, borrador.tipo, claveSeries]);
 
-  /* ---------- Receptores del emisor -------------------------------------- */
   useEffect(() => {
     if (!borrador.rfcEmisor) return;
     let vivo = true;
     const clave = borrador.rfcEmisor;
-
     fetch(`/api/empresas/${encodeURIComponent(clave)}/receptores`)
       .then((res) => res.json())
-      .then(
-        (body) => vivo && setCacheReceptores({ clave, receptores: body.receptores ?? [] })
-      );
-
+      .then((body) => vivo && setCacheReceptores({ clave, receptores: body.receptores ?? [] }));
     return () => {
       vivo = false;
     };
   }, [borrador.rfcEmisor]);
 
-  /* ---------- Folio: el siguiente de la serie elegida --------------------- */
   useEffect(() => {
     if (!borrador.rfcEmisor || !borrador.serie) return;
     let vivo = true;
     const serieInfo = series.find((s) => s.Nombre === borrador.serie);
-
     fetch(
       `/api/facturas/folio?rfc=${encodeURIComponent(borrador.rfcEmisor)}&serie=${encodeURIComponent(borrador.serie)}`
     )
@@ -222,118 +194,83 @@ export function NuevaFacturaWizard({
       .then((body) => {
         if (!vivo) return;
         const ultimo = body.ultimoFolio ?? 0;
-        const siguiente =
-          ultimo > 0 ? ultimo + 1 : parseInt(serieInfo?.Inicio ?? "1", 10) || 1;
+        const siguiente = ultimo > 0 ? ultimo + 1 : parseInt(serieInfo?.Inicio ?? "1", 10) || 1;
         setBorrador((prev) => ({ ...prev, folio: String(siguiente) }));
       });
-
     return () => {
       vivo = false;
     };
   }, [borrador.rfcEmisor, borrador.serie, series]);
 
   /* ---------- Validación en vivo ----------------------------------------- */
-  const ctx = useMemo(
-    () => ({ emisores, series, receptores }),
-    [emisores, series, receptores]
-  );
+  const ctx = useMemo(() => ({ emisores, series, receptores }), [emisores, series, receptores]);
   const problemas = useMemo(() => validar(borrador, ctx), [borrador, ctx]);
   const receptorActual = useMemo(() => receptorDe(borrador, ctx), [borrador, ctx]);
-  const totales = useMemo(() => calcularTotales(borrador.conceptos), [borrador.conceptos]);
+  const emisorActual = emisores.find((e) => e.Rfc === borrador.rfcEmisor) ?? null;
+
+  const pasos = pasosPara(borrador.tipo);
+  const indiceActual = Math.max(0, pasos.findIndex((p) => p.id === pasoActual));
+  const paso = pasos[indiceActual];
+  const problemasPendientes = pasos.flatMap((p) => problemas[p.id]);
+  const todoValido = problemasPendientes.length === 0;
+  const problemasPaso = problemas[paso.id];
 
   /**
-   * Arma el cuerpo que esperan /api/facturas y /api/facturas/validar.
-   *
-   * Es el mismo para los dos a propósito: la revisión tiene que mirar
-   * exactamente el comprobante que se va a timbrar, o no sirve de nada.
-   * Devuelve null si todavía falta el emisor o el receptor.
+   * El cuerpo que esperan /api/facturas y /api/facturas/validar. Es el mismo
+   * para los dos a propósito: la revisión tiene que mirar exactamente el
+   * comprobante que se va a timbrar.
    */
   function construirCuerpo() {
-    const emisor = emisores.find((e) => e.Rfc === borrador.rfcEmisor);
-    if (!emisor || !receptorActual) return null;
+    if (!emisorActual || !receptorActual) return null;
+    const b = borrador;
 
-    // El <input type="datetime-local"> entrega "YYYY-MM-DDTHH:mm" (sin
-    // segundos); el SAT espera "YYYY-MM-DDTHH:mm:ss".
-    const fechaPagoConSegundos =
-      borrador.pago.fechaPago.length === 16
-        ? `${borrador.pago.fechaPago}:00`
-        : borrador.pago.fechaPago;
-
-    const docto = borrador.tipo === "P" ? construirDoctoRelacionado(borrador.pago) : null;
+    // El <input type="datetime-local"> entrega "YYYY-MM-DDTHH:mm"; el SAT
+    // espera segundos.
+    const conSegundos = (f: string) => (f.length === 16 ? `${f}:00` : f);
+    const docto = b.tipo === "P" ? construirDoctoRelacionado(b.pago) : null;
+    const relaciona = b.tipo === "E" || (b.tipo === "I" && b.relacionar);
 
     return {
-      tipoDeComprobante: borrador.tipo,
-      cfdiRelacionados:
-        borrador.tipo === "E" && borrador.relacion.uuids.length > 0
-          ? borrador.relacion
-          : undefined,
-      emisorToken: emisor.Token,
-      rfcEmisor: emisor.Rfc,
-      nombreEmisor: emisor.Nombre,
-      regimenEmisor: emisor.Regimen,
-      lugarExpedicion: emisor.LugarExp,
-      serie: borrador.serie,
-      folio: borrador.folio,
-      formaPago: borrador.formaPago,
-      metodoPago: borrador.metodoPago,
-      condicionesDePago: borrador.condicionesDePago.trim() || undefined,
+      tipoDeComprobante: b.tipo,
+      cfdiRelacionados: relaciona && b.relacion.uuids.length > 0 ? b.relacion : undefined,
+      emisorToken: emisorActual.Token,
+      rfcEmisor: emisorActual.Rfc,
+      nombreEmisor: emisorActual.Nombre,
+      regimenEmisor: emisorActual.Regimen,
+      lugarExpedicion: emisorActual.LugarExp,
+      serie: b.serie,
+      folio: b.folio,
+      formaPago: b.formaPago,
+      metodoPago: b.metodoPago,
+      condicionesDePago: b.condicionesDePago.trim() || undefined,
       receptorRfc: receptorActual.Rfc,
       receptorNombre: receptorActual.Nombre,
       receptorRegimenFiscal: receptorActual.RegimenFiscal,
       receptorDomicilioFiscal: receptorActual.DomicilioFiscal,
-      receptorUsoCfdi: borrador.usoCfdi,
-      conceptos: borrador.conceptos,
+      receptorUsoCfdi: b.tipo === "P" ? "CP01" : b.usoCfdi,
+      conceptos: b.conceptos,
+      fecha: b.tipo !== "P" && !b.fechaActual && b.fechaEmision ? conSegundos(b.fechaEmision) : undefined,
+      moneda: b.tipo !== "P" ? b.moneda : undefined,
+      tipoCambio: b.tipo !== "P" && b.moneda !== "MXN" ? b.tipoCambio : undefined,
+      exportacion: b.tipo !== "P" ? b.exportacion : undefined,
+      informacionGlobal: llevaGlobal(b) ? b.global : undefined,
+      complementos: b.tipo === "I" && activos(b.complementos).length > 0 ? b.complementos : undefined,
+      observaciones: b.observaciones.trim() || undefined,
       pago:
-        borrador.tipo === "P" && docto
+        b.tipo === "P" && docto
           ? {
-              fechaPago: fechaPagoConSegundos,
-              formaDePagoP: borrador.pago.formaDePagoP,
-              monedaP: borrador.pago.monedaP,
-              tipoCambioP: borrador.pago.tipoCambioP || "1",
-              monto: (parseFloat(borrador.pago.monto) || 0).toFixed(2),
+              fechaPago: conSegundos(b.pago.fechaPago),
+              formaDePagoP: b.pago.formaDePagoP,
+              monedaP: b.pago.monedaP,
+              tipoCambioP: b.pago.tipoCambioP || "1",
+              monto: (parseFloat(b.pago.monto) || 0).toFixed(2),
               doctoRelacionado: [docto],
             }
           : undefined,
     };
   }
 
-  /**
-   * Tira el resultado guardado para que el efecto vuelva a pedir la revisión.
-   * Es lo que hace el botón de reintentar cuando la revisión no respondió.
-   */
-  function reintentarRevision() {
-    revisionEnVuelo.current = null;
-    setRevision(null);
-  }
-
-  /**
-   * Con la plantilla el comprobante no se captura aquí: viene del Excel, y
-   * quien lo revisa es la pantalla del lote, fila por fila y con la celda
-   * exacta. Así que el borrador deja de importar — ni sus faltantes, ni el
-   * resumen, ni el paso de revisar y timbrar.
-   */
-  const enPlantilla = modo === "plantilla";
-
-  // Tres pantallas: qué, cómo y revisión. Los pasos internos (emisor,
-  // receptor, conceptos…) siguen existiendo para agrupar los problemas y
-  // poder decir "falta el receptor" en vez de "falta algo".
-  const pasos = enPlantilla ? PASOS_VISTA.slice(0, 2) : PASOS_VISTA;
-  const pasosInternos = pasosPara(borrador.tipo);
-  const indiceActual = pasos.findIndex((p) => p.id === pasoActual);
-  const problemasPendientes = pasosInternos.flatMap((p) => problemas[p.id]);
-  const todoValido = problemasPendientes.length === 0;
-
-  /** Los problemas de la pantalla actual, juntando los de sus pasos internos. */
-  const problemasDe = (vista: PasoVistaId) =>
-    enPlantilla ? [] : internosDe(vista, borrador.tipo).flatMap((id) => problemas[id]);
-  const problemasVista = problemasDe(pasoActual);
-
-  /**
-   * La revisión vale solo mientras el comprobante no cambie. Se compara contra
-   * el cuerpo que se mandaría ahora mismo, en vez de invalidar desde cada
-   * setter: así ningún cambio se escapa y no queda un visto bueno viejo
-   * amparando una factura distinta.
-   */
+  /* ---------- Revisión contra el SAT (igual que antes) ------------------- */
   const claveComprobante = useMemo(
     () => {
       const cuerpo = construirCuerpo();
@@ -343,16 +280,11 @@ export function NuevaFacturaWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [borrador, emisores, receptorActual]
   );
-  const tocaRevisar =
-    pasoActual === "revision" && todoValido && claveComprobante !== null;
-  const revisionVigente =
-    revision !== null && revision.clave === claveComprobante ? revision : null;
-  const datosRevision =
-    revisionVigente !== null && "datos" in revisionVigente ? revisionVigente.datos : null;
-  const falloRevision =
-    revisionVigente !== null && "motivo" in revisionVigente ? revisionVigente.motivo : null;
-  // Se deriva de comparar claves, como cargandoSeries: así el efecto no tiene
-  // que marcar "revisando" con un setState síncrono.
+  const enPlantilla = modo === "plantilla";
+  const tocaRevisar = !enMenu && !enPlantilla && pasoActual === "revision" && todoValido && claveComprobante !== null;
+  const revisionVigente = revision !== null && revision.clave === claveComprobante ? revision : null;
+  const datosRevision = revisionVigente !== null && "datos" in revisionVigente ? revisionVigente.datos : null;
+  const falloRevision = revisionVigente !== null && "motivo" in revisionVigente ? revisionVigente.motivo : null;
   const revisandoSat = tocaRevisar && revisionVigente === null;
   const erroresSat = datosRevision?.Validacion.Errores ?? [];
   const advertenciasSat = datosRevision?.Validacion.Advertencias ?? [];
@@ -386,8 +318,6 @@ export function NuevaFacturaWizard({
       .catch(() => ({ clave, motivo: "No se pudo conectar con el servidor" }))
       .then((r) => vivo && setRevision(r))
       .finally(() => {
-        // Solo se libera si sigue siendo la petición vigente: si el borrador
-        // cambió, la clave en vuelo ya es otra y no hay que pisarla.
         if (revisionEnVuelo.current === clave) revisionEnVuelo.current = null;
       });
 
@@ -398,89 +328,167 @@ export function NuevaFacturaWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tocaRevisar, claveComprobante, revision]);
 
-  // Si el saldo no se pudo leer (`null`) no se bloquea nada: se prefiere dejar
-  // pasar y que el PAC decida antes que impedir emitir por un fallo de lectura.
-  const sinTimbres = timbres !== null && timbres.disponibles <= 0;
-  const pocosTimbres =
-    timbres !== null &&
-    timbres.disponibles > 0 &&
-    timbres.disponibles <= TIMBRES_BAJOS;
+  function reintentarRevision() {
+    revisionEnVuelo.current = null;
+    setRevision(null);
+  }
 
-  /**
-   * Estado de cada paso en el indicador. Un paso solo se marca en rojo si el
-   * usuario ya pasó por él: no tiene sentido regañarlo por datos que todavía
-   * no le hemos pedido.
-   */
-  const pasosStepper = pasos.map((p, i) => {
-    const suyos = problemasDe(p.id);
-    const visitado = intentados.includes(p.id) || i < indiceActual;
-    let estado: PasoEstado = "pendiente";
-    if (p.id === pasoActual) estado = "actual";
-    else if (suyos.length > 0 && visitado) estado = "error";
-    else if (visitado) estado = "completo";
+  const sinTimbres = timbres !== null && timbres.disponibles <= 0;
+  const pocosTimbres = timbres !== null && timbres.disponibles > 0 && timbres.disponibles <= TIMBRES_BAJOS;
+
+  /* ---------- Riel y navegación ------------------------------------------ */
+  const visitado = (id: PasoId) => visitados.includes(id);
+
+  function estadoDe(id: PasoId): EstadoPaso {
+    if (id === pasoActual) return "actual";
+    if (!visitado(id) && !intentados.includes(id)) return "pendiente";
+    return problemas[id].length > 0 ? "falta" : "hecho";
+  }
+
+  const totales = calcularTotales(borrador.conceptos, borrador.complementos);
+
+  /** Lo elegido en cada paso, en corto (riel) y en largo (revisión). */
+  function resumenDe(id: PasoId): { valor: string; detalle?: string } {
+    const b = borrador;
+    switch (id) {
+      case "emisor":
+        return {
+          valor: emisorActual?.Nombre ?? "Sin emisor",
+          detalle: [
+            b.serie && b.folio ? `Serie ${b.serie}, folio ${b.folio}` : "Sin serie",
+            b.tipo !== "P" && (b.fechaActual ? "fecha de hoy" : b.fechaEmision.replace("T", " ")),
+            b.tipo !== "P" && b.moneda + (b.moneda !== "MXN" ? ` a ${b.tipoCambio || "—"}` : ""),
+            b.tipo !== "P" && `exportación ${b.exportacion}`,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        };
+      case "receptor": {
+        const g = llevaGlobal(b)
+          ? `Global ${PERIODICIDADES.find((p) => p.value === b.global.periodicidad)?.label.slice(5) ?? ""}, ${MESES.find((m) => m.value === b.global.meses)?.label.slice(5) ?? "sin mes"} ${b.global.anio}`
+          : undefined;
+        return {
+          valor: receptorActual?.Nombre ?? "Sin receptor",
+          detalle: [receptorActual?.Rfc, `uso ${b.usoCfdi}`, g].filter(Boolean).join(" · "),
+        };
+      }
+      case "conceptos":
+        return {
+          valor: money(totales.total, b.moneda),
+          detalle: `${b.conceptos.length} concepto${b.conceptos.length === 1 ? "" : "s"}`,
+        };
+      case "pago":
+        return {
+          valor: b.metodoPago,
+          detalle: FORMAS_PAGO.find((f) => f.value === b.formaPago)?.label,
+        };
+      case "relacion":
+        return b.relacionar
+          ? {
+              valor: `${b.relacion.uuids.length} relacionada${b.relacion.uuids.length === 1 ? "" : "s"}`,
+              detalle: TIPOS_RELACION_FACTURA.find((t) => t.value === b.relacion.tipoRelacion)?.label,
+            }
+          : { valor: "No se relaciona" };
+      case "complementos": {
+        const lista = activos(b.complementos);
+        return { valor: lista.length ? lista.map((c) => c.nombre).join(", ") : "Ninguno" };
+      }
+      case "origen":
+        return {
+          valor: `${b.relacion.uuids.length} factura${b.relacion.uuids.length === 1 ? "" : "s"}`,
+          detalle: TIPOS_RELACION.find((t) => t.value === b.relacion.tipoRelacion)?.label,
+        };
+      case "pagos": {
+        const fo = b.pago.facturaOrigen;
+        return fo
+          ? {
+              valor: fo.serie ? `${fo.serie}-${fo.folio}` : fo.folio,
+              detalle: `Pago de ${money(b.pago.monto || "0", b.pago.monedaP)}`,
+            }
+          : { valor: "Sin factura" };
+      }
+      default:
+        return { valor: "" };
+    }
+  }
+
+  const pasosRiel: PasoRiel[] = pasos.map((p, i) => {
+    const estado = estadoDe(p.id);
+    const faltan = problemas[p.id].length;
     return {
       id: p.id,
       titulo: p.titulo,
-      descripcion: p.descripcion,
       estado,
-      faltantes: suyos.length,
+      resumen:
+        estado === "falta"
+          ? `${faltan} dato${faltan === 1 ? "" : "s"} pendiente${faltan === 1 ? "" : "s"}`
+          : estado === "hecho" && p.id !== "revision"
+            ? resumenDe(p.id).valor
+            : undefined,
+      habilitado: i <= indiceActual || visitado(p.id) || (i > 0 && visitado(pasos[i - 1].id)),
     };
   });
 
-  function irA(id: string) {
-    setIntentados((prev) => (prev.includes(pasoActual) ? prev : [...prev, pasoActual]));
-    setPasoActual(id as PasoVistaId);
+  function irA(id: PasoId) {
+    setVisitados((prev) => (prev.includes(pasoActual) ? prev : [...prev, pasoActual]));
+    setPasoActual(id);
+    setDocAbierto(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  /** Desde la revisión se corrige por paso interno; aquí se traduce a pantalla. */
-  function irAPasoInterno(paso: string) {
-    irA(vistaDe(paso as (typeof pasosInternos)[number]["id"]));
   }
 
   function siguiente() {
     setIntentados((prev) => (prev.includes(pasoActual) ? prev : [...prev, pasoActual]));
-    if (problemasVista.length > 0) {
+    if (problemasPaso.length > 0) {
       toast("Faltan datos en este paso", "danger");
       return;
     }
     const proximo = pasos[indiceActual + 1];
-    if (proximo) {
-      setPasoActual(proximo.id);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    if (proximo) irA(proximo.id);
   }
 
   function atras() {
-    const previo = pasos[indiceActual - 1];
-    if (previo) {
-      setPasoActual(previo.id);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+    if (indiceActual === 0) {
+      volverAlMenu();
+      return;
     }
+    irA(pasos[indiceActual - 1].id);
   }
 
+  function empezar(tipo: TipoComprobante) {
+    setBorrador((prev) => borradorPara(tipo, { rfcEmisor: prev.rfcEmisor }));
+    setModo("una");
+    setEnMenu(false);
+    setPasoActual("emisor");
+    setVisitados([]);
+    setIntentados([]);
+    setErrorEnvio(null);
+    window.scrollTo({ top: 0 });
+  }
+
+  function volverAlMenu() {
+    setEnMenu(true);
+    setModo("una");
+    setErrorEnvio(null);
+    window.scrollTo({ top: 0 });
+  }
 
   async function timbrar() {
     setErrorEnvio(null);
     setIntentados(pasos.map((p) => p.id));
-
     if (!todoValido) {
       toast("Todavía faltan datos", "danger");
       return;
     }
-
     if (rechazadoPorSat) {
       toast("El SAT rechazaría este comprobante", "danger");
       return;
     }
-
     const cuerpo = construirCuerpo();
     if (!cuerpo) return;
 
     setEnviando(true);
     // Bloqueante: timbrar consume un folio y un timbre ante el SAT. Un segundo
     // clic no es una molestia, es una factura duplicada que hay que cancelar.
-    // La pantalla completa existe para que ese clic no sea posible.
     const terminarProgreso = progreso("Timbrando ante el SAT…", true);
     try {
       const res = await fetch("/api/facturas", {
@@ -489,14 +497,12 @@ export function NuevaFacturaWizard({
         body: JSON.stringify(cuerpo),
       });
       const body = await res.json();
-
       if (!res.ok) {
-        setErrorEnvio(body.error ?? "No se pudo timbrar la factura");
+        setErrorEnvio(body.error ?? "No se pudo timbrar el comprobante");
         return;
       }
-
       setResultado(body);
-      toast("Factura timbrada");
+      toast(TIMBRADO_TIPO[borrador.tipo]);
     } catch {
       setErrorEnvio("No se pudo conectar con el servidor");
     } finally {
@@ -505,22 +511,17 @@ export function NuevaFacturaWizard({
     }
   }
 
-  function reiniciar() {
+  function otroComprobante() {
     setResultado(null);
     setErrorEnvio(null);
+    setVisitados([]);
     setIntentados([]);
-    setPasoActual("tipo");
-    setBorrador((prev) => ({
-      ...BORRADOR_INICIAL,
-      rfcEmisor: prev.rfcEmisor,
-      tipo: prev.tipo,
-      serie: prev.serie,
-      formaPago: prev.formaPago,
-      metodoPago: prev.metodoPago,
-      conceptos: [{ ...CONCEPTO_VACIO }],
-      folio: "",
-    }));
+    setPasoActual("emisor");
+    setBorrador((prev) => borradorPara(prev.tipo, { rfcEmisor: prev.rfcEmisor }));
+    setEnMenu(true);
   }
+
+  /* ---------- Pantallas ---------------------------------------------------- */
 
   if (emisores.length === 0) {
     return (
@@ -541,262 +542,209 @@ export function NuevaFacturaWizard({
   if (resultado) {
     return (
       <ResultadoTimbrado
+        titulo={TIMBRADO_TIPO[borrador.tipo]}
         uuid={resultado.UUID}
         fechaTimbrado={resultado.FechaTimbrado}
-        onOtra={reiniciar}
+        onOtra={otroComprobante}
       />
     );
   }
 
-  // Los componentes-paso filtran por `campo`, así que se les puede pasar la
-  // unión de problemas de la pantalla: cada uno recoge los suyos. Es lo que
-  // permite apilarlos sin tocarles una línea.
+  if (enMenu) {
+    return (
+      <MenuTipos
+        onElegir={empezar}
+        onPlantilla={() => {
+          setModo("plantilla");
+          setEnMenu(false);
+        }}
+      />
+    );
+  }
+
+  if (enPlantilla) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-4">
+        <Button variant="ghost" onClick={volverAlMenu}>
+          ← Volver a “¿Qué quieres hacer?”
+        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-[13px] font-semibold text-ink-2">Plantilla de</span>
+          <Segmented<TipoComprobante>
+            ariaLabel="Qué plantilla"
+            value={borrador.tipo === "P" ? "P" : "I"}
+            onChange={(t) => set({ tipo: t, serie: "", folio: "" })}
+            options={[
+              { value: "I", label: "Facturas" },
+              { value: "P", label: "Complementos de pago" },
+            ]}
+          />
+        </div>
+        <ElegirModo
+          modo={modo}
+          onModo={(m) => (m === "una" ? empezar(borrador.tipo) : setModo(m))}
+          tipo={borrador.tipo}
+          rfcEmisor={borrador.rfcEmisor}
+        />
+      </div>
+    );
+  }
+
   const comun = {
     borrador,
     set,
-    problemas: problemasVista,
+    problemas: problemasPaso,
     mostrarErrores: intentados.includes(pasoActual),
   };
 
+  const filasRevision: FilaResumen[] = pasos
+    .filter((p) => p.id !== "revision")
+    .map((p) => ({ paso: p.id, etiqueta: p.titulo, ...resumenDe(p.id) }));
+
+  const titulos = Object.fromEntries(pasos.map((p) => [p.id, p.titulo])) as Partial<Record<PasoId, string>>;
+  const esRevision = pasoActual === "revision";
+
+  const documento = (
+    <DocumentoPreview
+      borrador={borrador}
+      emisor={emisorActual}
+      receptor={receptorActual}
+      pasoActual={pasoActual}
+      visto={visitado}
+      titulos={titulos}
+    />
+  );
+
   return (
-    <div className="space-y-4">
-      <Stepper pasos={pasosStepper} onIr={irA} />
+    <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_380px]">
+      <RielPasos
+        tipo={NOMBRE_TIPO[borrador.tipo]}
+        folio={borrador.serie && borrador.folio ? `${borrador.serie}-${borrador.folio}` : "Sin folio todavía"}
+        icono={<IconoTipo tipo={borrador.tipo} />}
+        pasos={pasosRiel}
+        onIr={irA}
+      />
 
-      <div
-        className={cx(
-          "grid items-start gap-4",
-          !enPlantilla && "xl:grid-cols-[minmax(0,1fr)_300px]"
-        )}
-      >
-        <div className="min-w-0 space-y-4">
-          {pasoActual === "tipo" && <PasoTipo {...comun} />}
-
-          {pasoActual === "como" && (
-            <ElegirModo
-              modo={modo}
-              onModo={setModo}
-              tipo={borrador.tipo}
-              rfcEmisor={borrador.rfcEmisor}
-            />
-          )}
-
-          {/* Emisor, receptor y conceptos en la misma pantalla: son todos
-              "capturar el comprobante", y pasarlos de uno en uno obligaba a
-              tres clics de Continuar para una factura de dos renglones. */}
-          {pasoActual === "como" && modo === "una" && (
-            <>
-              <PasoEmisor
-                {...comun}
-                emisores={emisores}
-                series={series}
-                cargandoSeries={cargandoSeries}
-                onAbrirRelacion={() => setModalRelacion(true)}
-              />
-
-              {borrador.tipo === "P" ? (
-                <PasoPagos {...comun} autoUuid={origenUuid} />
-              ) : (
-                <>
-                  <PasoReceptor
-                    {...comun}
-                    receptores={receptores}
-                    receptorActual={receptorActual}
-                    cargandoReceptores={cargandoReceptores}
-                    onNuevoReceptor={() => setModalReceptor(true)}
-                  />
-                  <PasoConceptos {...comun} />
-                </>
-              )}
-            </>
-          )}
-
-          {pasoActual === "revision" && (
-            <PasoRevision
-              borrador={borrador}
-              emisores={emisores}
-              receptorActual={receptorActual}
-              // Por paso interno, no por pantalla: "falta el receptor" ayuda
-              // más que "falta algo en Cómo". El botón de corregir traduce.
-              problemasTotales={pasosInternos.map((p) => ({
-                paso: p.id,
-                titulo: p.titulo,
-                problemas: problemas[p.id],
-              }))}
-              onIrA={irAPasoInterno}
-            />
-          )}
-
-          {/* Revisión contra las reglas del SAT, hecha sobre el XML ya armado y
-              sellado. Es distinta de `problemas`, que mira el borrador: aquí se
-              cazan los rechazos que solo se ven con el comprobante hecho. */}
-          {pasoActual === "revision" && todoValido && (
-            <RevisionSat
-              revisando={revisandoSat}
-              hayResultado={datosRevision !== null}
-              errores={erroresSat}
-              advertencias={advertenciasSat}
-              noRevisado={noRevisadoSat}
-              motivoFallo={falloRevision}
-              onReintentar={reintentarRevision}
-            />
-          )}
-
-          {/* Sin saldo el timbrado falla en el PAC con un error críptico: más
-              vale decirlo antes de que llene todo el comprobante. */}
-          {pasoActual === "revision" && sinTimbres && (
-            <Note tone="danger" title="No te quedan timbres">
-              El timbrado consume un timbre de tu cuenta y tu saldo está en cero.
-              Recarga con tu distribuidor antes de emitir.
-            </Note>
-          )}
-          {pasoActual === "revision" && pocosTimbres && (
-            <Note tone="warn" title={`Te quedan ${timbres!.disponibles} timbres`}>
-              Esta factura consumirá uno. Conviene recargar pronto.
-            </Note>
-          )}
-
-          {errorEnvio && (
-            <Note tone="danger" title="El SAT rechazó el comprobante">
-              {errorEnvio}
-            </Note>
-          )}
-
-          {/* ---------- Navegación ---------- */}
-          <div className="sticky bottom-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface/90 px-4 py-3 shadow-raised backdrop-blur">
-            <Button variant="ghost" onClick={atras} disabled={indiceActual === 0}>
-              Atrás
-            </Button>
-
-            <div className="flex items-center gap-3">
-              {/* Con la plantilla el botón que cierra el paso es "Revisar el
-                  archivo", dentro de la tarjeta: aquí no hay nada que
-                  continuar. */}
-              {enPlantilla && (
-                <span className="text-[12px] text-ink-3">
-                  El archivo se revisa desde la tarjeta de arriba.
-                </span>
-              )}
-              {problemasVista.length > 0 && (
-                <span className="text-[12px] font-medium text-warn">
-                  {problemasVista.length} dato
-                  {problemasVista.length === 1 ? "" : "s"} por completar
-                </span>
-              )}
-              {pasoActual === "revision" ? (
-                <Button
-                  variant="primary"
-                  onClick={timbrar}
-                  disabled={
-                    enviando || !todoValido || sinTimbres || rechazadoPorSat || revisandoSat
-                  }
-                >
-                  {enviando ? "Timbrando…" : revisandoSat ? "Revisando…" : "Timbrar factura"}
-                </Button>
-              ) : enPlantilla ? null : (
-                <Button variant="primary" onClick={siguiente}>
-                  Continuar
-                </Button>
-              )}
+      <div className="min-w-0 space-y-4">
+        <Card>
+          <CardBody className="space-y-5">
+            <div className="space-y-1">
+              <p className="text-[12px] text-ink-3">
+                Paso {indiceActual + 1} de {pasos.length}
+              </p>
+              <h1 className="text-balance text-[22px] font-bold leading-tight tracking-[-0.015em] text-ink">
+                {paso.pregunta}
+              </h1>
+              <p className="text-pretty text-[14px] text-ink-2">{paso.porque}</p>
             </div>
-          </div>
+
+            {pasoActual === "emisor" && (
+              <PasoEmisor {...comun} emisores={emisores} series={series} cargandoSeries={cargandoSeries} />
+            )}
+            {pasoActual === "origen" && <PasoOrigen {...comun} onAbrirRelacion={() => setModalRelacion(true)} />}
+            {pasoActual === "receptor" && (
+              <PasoReceptor
+                {...comun}
+                receptores={receptores}
+                receptorActual={receptorActual}
+                cargandoReceptores={cargandoReceptores}
+                onNuevoReceptor={() => setModalReceptor(true)}
+              />
+            )}
+            {pasoActual === "conceptos" && <PasoConceptos {...comun} />}
+            {pasoActual === "pago" && <PasoFormaPago {...comun} />}
+            {pasoActual === "relacion" && (
+              <PasoRelacion {...comun} onAbrirRelacion={() => setModalRelacion(true)} />
+            )}
+            {pasoActual === "complementos" && <PasoComplementos {...comun} />}
+            {pasoActual === "pagos" && <PasoPagos {...comun} autoUuid={origenUuid} />}
+            {esRevision && (
+              <PasoRevision
+                {...comun}
+                pasos={pasos}
+                problemasPorPaso={problemas}
+                filas={filasRevision}
+                onIrA={irA}
+              />
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Revisión contra las reglas del SAT, hecha sobre el XML ya armado y
+            sellado: caza lo que solo se ve con el comprobante hecho. */}
+        {esRevision && todoValido && (
+          <RevisionSat
+            revisando={revisandoSat}
+            hayResultado={datosRevision !== null}
+            errores={erroresSat}
+            advertencias={advertenciasSat}
+            noRevisado={noRevisadoSat}
+            motivoFallo={falloRevision}
+            onReintentar={reintentarRevision}
+          />
+        )}
+        {esRevision && sinTimbres && (
+          <Note tone="danger" title="No te quedan timbres">
+            El timbrado consume un timbre de tu cuenta y tu saldo está en cero. Recarga con tu distribuidor antes de
+            emitir.
+          </Note>
+        )}
+        {esRevision && pocosTimbres && (
+          <Note tone="warn" title={`Te quedan ${timbres!.disponibles} timbres`}>
+            Este comprobante consumirá uno. Conviene recargar pronto.
+          </Note>
+        )}
+        {errorEnvio && (
+          <Note tone="danger" title="El SAT rechazó el comprobante">
+            {errorEnvio}
+          </Note>
+        )}
+
+        {/* En pantallas donde no cabe la tercera columna, el comprobante se abre aquí. */}
+        <div className="xl:hidden">
+          <Button variant="secondary" onClick={() => setDocAbierto((v) => !v)} aria-expanded={docAbierto}>
+            {docAbierto ? "Ocultar el comprobante" : "Ver cómo va el comprobante"}
+          </Button>
+          {docAbierto && <div className="mt-3">{documento}</div>}
         </div>
 
-        {/* ---------- Resumen en vivo ---------- */}
-        {/* Resume el borrador que se captura aquí; con la plantilla no hay
-            ninguno, y enseñar "Total $0.00" al lado de un Excel de 230
-            facturas solo confunde. */}
-        <aside className={cx("xl:sticky xl:top-20", enPlantilla && "hidden")}>
-          <Card>
-            <CardBody className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3">
-                  Resumen
-                </span>
-                <Pill tone={borrador.tipo === "E" ? "danger" : "ok"}>
-                  {etiquetaTipo(borrador.tipo)}
-                </Pill>
-              </div>
-
-              <Linea etiqueta="Emisor" valor={
-                emisores.find((e) => e.Rfc === borrador.rfcEmisor)?.Nombre ?? "—"
-              } />
-              <Linea
-                etiqueta="Folio"
-                valor={borrador.serie && borrador.folio ? `${borrador.serie}-${borrador.folio}` : "—"}
-                mono
-              />
-              <Linea
-                etiqueta="Receptor"
-                valor={
-                  borrador.receptorRfc === RFC_PUBLICO_GENERAL
-                    ? "Público en general"
-                    : (receptorActual?.Nombre ?? "—")
-                }
-              />
-              {borrador.tipo === "P" ? (
-                <Linea
-                  etiqueta="Factura a pagar"
-                  valor={
-                    borrador.pago.facturaOrigen
-                      ? borrador.pago.facturaOrigen.serie
-                        ? `${borrador.pago.facturaOrigen.serie}-${borrador.pago.facturaOrigen.folio}`
-                        : borrador.pago.facturaOrigen.folio
-                      : "—"
-                  }
-                  mono
-                />
-              ) : (
-                <Linea etiqueta="Conceptos" valor={String(borrador.conceptos.length)} />
-              )}
-
-              <div className="flex items-baseline justify-between gap-3 border-t border-line pt-3">
-                <span className="text-[12.5px] font-semibold text-ink">
-                  {borrador.tipo === "P" ? "Monto pagado" : "Total"}
-                </span>
-                <span className="font-mono text-lg font-bold tracking-tight text-ink">
-                  {borrador.tipo === "P"
-                    ? money(borrador.pago.monto || "0", borrador.pago.monedaP)
-                    : money(totales.total)}
-                </span>
-              </div>
-
-              <div className="border-t border-line pt-3">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3">
-                  {todoValido ? "Listo para timbrar" : "Lo que falta"}
-                </p>
-                {todoValido ? (
-                  <p className="text-[12.5px] text-ok">Todos los datos están completos.</p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {pasosInternos.filter((p) => problemas[p.id].length > 0).map((p) => (
-                      <li key={p.id}>
-                        <button
-                          type="button"
-                          onClick={() => irAPasoInterno(p.id)}
-                          className={cx(
-                            "focus-brand flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-surface-2",
-                            pasoActual === vistaDe(p.id) && "bg-surface-2"
-                          )}
-                        >
-                          <span className="text-[12.5px] font-medium text-ink-2">
-                            {p.titulo}
-                          </span>
-                          <span className="rounded-full bg-warn-bg px-2 py-px text-[11px] font-bold text-warn">
-                            {problemas[p.id].length}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </CardBody>
-          </Card>
-        </aside>
+        {/* ---------- Navegación ---------- */}
+        <div className="sticky bottom-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface/90 px-4 py-3 shadow-raised backdrop-blur">
+          <Button variant="ghost" onClick={atras}>
+            {indiceActual === 0 ? "Cambiar tipo" : "Atrás"}
+          </Button>
+          <div className="flex items-center gap-3">
+            {intentados.includes(pasoActual) && problemasPaso.length > 0 && (
+              <span className="text-[12px] font-medium text-warn">
+                {problemasPaso.length} dato{problemasPaso.length === 1 ? "" : "s"} por completar
+              </span>
+            )}
+            {esRevision ? (
+              <Button
+                variant="primary"
+                onClick={timbrar}
+                disabled={enviando || !todoValido || sinTimbres || rechazadoPorSat || revisandoSat}
+              >
+                {enviando
+                  ? "Timbrando…"
+                  : revisandoSat
+                    ? "Revisando…"
+                    : `Timbrar ${NOMBRE_TIPO[borrador.tipo].toLowerCase()}`}
+              </Button>
+            ) : (
+              <Button variant="primary" onClick={siguiente}>
+                Continuar
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
+
+      <aside className={cx("hidden xl:sticky xl:top-20 xl:block")}>{documento}</aside>
 
       {modalRelacion && (
         <RelacionarFacturaModal
+          titulo={borrador.tipo === "E" ? "Relacionar la factura que corrige" : "Relacionar facturas"}
           rfcEmisor={borrador.rfcEmisor}
           yaRelacionados={borrador.relacion.uuids}
           onClose={() => setModalRelacion(false)}
@@ -804,10 +752,7 @@ export function NuevaFacturaWizard({
             set({
               relacion: {
                 ...borrador.relacion,
-                uuids: [
-                  ...borrador.relacion.uuids,
-                  ...uuids.filter((u) => !borrador.relacion.uuids.includes(u)),
-                ],
+                uuids: [...borrador.relacion.uuids, ...uuids.filter((u) => !borrador.relacion.uuids.includes(u))],
               },
             })
           }
@@ -820,38 +765,12 @@ export function NuevaFacturaWizard({
           onClose={() => setModalReceptor(false)}
           onSaved={(receptor) => {
             setModalReceptor(false);
-            setCacheReceptores((prev) =>
-              prev ? { ...prev, receptores: [...prev.receptores, receptor] } : prev
-            );
+            setCacheReceptores((prev) => (prev ? { ...prev, receptores: [...prev.receptores, receptor] } : prev));
             set({ receptorRfc: receptor.Rfc, usoCfdi: receptor.UsoCfdi || borrador.usoCfdi });
             toast("Receptor agregado");
           }}
         />
       )}
-    </div>
-  );
-}
-
-function Linea({
-  etiqueta,
-  valor,
-  mono,
-}: {
-  etiqueta: string;
-  valor: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="shrink-0 text-[12px] text-ink-3">{etiqueta}</span>
-      <span
-        className={cx(
-          "truncate text-right text-[12.5px] font-semibold text-ink",
-          mono && "font-mono"
-        )}
-      >
-        {valor}
-      </span>
     </div>
   );
 }

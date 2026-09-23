@@ -60,7 +60,7 @@ export function NuevaSplitButton({ hayEmisor }: { hayEmisor: boolean }) {
   return (
     <div ref={wrapRef} className="relative flex">
       <Link
-        href="/facturas/nueva?tipo=I"
+        href="/facturas/nueva"
         className="focus-brand flex-grow rounded-l-[10px] bg-brand px-3 py-2.5 text-center text-[13.5px] font-semibold text-white transition hover:bg-brand-600"
       >
         Nueva factura

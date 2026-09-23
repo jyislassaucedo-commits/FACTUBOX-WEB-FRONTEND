@@ -1,4 +1,7 @@
 import type { NuevaFacturaInput, TipoComprobante } from "@/lib/timbrado";
+import { MONEDAS } from "@/lib/catalogosSat";
+import { complementoDe, problemasDeComplementos } from "@/lib/complementos";
+import { EXPORTACIONES, OBSERVACIONES_MAX, PERIODICIDADES, mesesPara } from "@/lib/facturaNueva";
 
 /** Tipos de comprobante que la pantalla de nueva factura sabe armar hoy. */
 export const TIPOS_SOPORTADOS: TipoComprobante[] = ["I", "E", "P"];
@@ -52,5 +55,47 @@ export function revisarEntradaFactura(body: CuerpoFactura | null): string | null
     return "Un complemento de pago debe decir qué factura salda";
   }
 
+  // Lo que el asistente puede cambiar además de lo de siempre. Todo va tal
+  // cual al XML, así que un valor raro aquí es un rechazo del PAC con el
+  // timbre ya consumido.
+  if (body.fecha !== undefined && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(body.fecha)) {
+    return "La fecha de emisión no tiene el formato correcto";
+  }
+  if (body.moneda !== undefined && !MONEDAS.some((m) => m.value === body.moneda)) {
+    return "Moneda no soportada";
+  }
+  if (body.moneda && body.moneda !== "MXN" && !(parseFloat(body.tipoCambio ?? "") > 0)) {
+    return "Falta el tipo de cambio de la moneda";
+  }
+  if (body.exportacion !== undefined && !EXPORTACIONES.some((e) => e.value === body.exportacion)) {
+    return "Clave de exportación no válida";
+  }
+  if (body.informacionGlobal) {
+    const g = body.informacionGlobal;
+    if (
+      !PERIODICIDADES.some((p) => p.value === g.periodicidad) ||
+      !mesesPara(g.periodicidad).some((m) => m.value === g.meses) ||
+      !/^\d{4}$/.test(g.anio)
+    ) {
+      return "La información global está incompleta";
+    }
+  }
+  if (body.cfdiRelacionados?.uuids?.some((u) => !UUID.test(u.trim()))) {
+    return "Hay un folio fiscal relacionado con formato inválido";
+  }
+  if ((body.observaciones ?? "").length > OBSERVACIONES_MAX) {
+    return `Las observaciones pueden tener hasta ${OBSERVACIONES_MAX} caracteres`;
+  }
+  if (body.complementos) {
+    for (const id of Object.keys(body.complementos)) {
+      const def = complementoDe(id);
+      if (!def || !def.disponible) return `Complemento no soportado: ${id}`;
+    }
+    const faltan = problemasDeComplementos(body.complementos);
+    if (faltan.length > 0) return faltan[0].mensaje;
+  }
+
   return null;
 }
+
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;

@@ -1,5 +1,7 @@
 import { callLegacyPhpApi, type PhpResponse } from "./phpApi";
 import { getSession } from "./session";
+import { getCurrentUser } from "./currentUser";
+import { activos, totalesLocales, type ComplementosBorrador } from "./complementos";
 import {
   IMPUESTO_IEPS,
   IMPUESTO_ISR,
@@ -103,6 +105,28 @@ export type NuevaFacturaInput = {
   conceptos: ConceptoInput[];
   /** Solo para tipoDeComprobante "P". */
   pago?: PagoInput;
+  /** "YYYY-MM-DDTHH:mm:ss" en hora de México. Sin ella, la de este momento. */
+  fecha?: string;
+  /** Sin ella, MXN. */
+  moneda?: string;
+  /** Solo cuenta si la moneda no es MXN. */
+  tipoCambio?: string;
+  /** c_Exportacion. Sin ella, "01". */
+  exportacion?: string;
+  /**
+   * La que eligió el usuario. Sin ella, a Público en general se le pone la de
+   * siempre (diaria, del mes en curso), que es lo que ya hacía la autofactura.
+   */
+  informacionGlobal?: { periodicidad: string; meses: string; anio: string };
+  /** Complementos activos: id del registro (lib/complementos.ts) → datos. */
+  complementos?: ComplementosBorrador;
+  /** Texto libre del usuario; va en la addenda SistemaLocal. */
+  observaciones?: string;
+  /**
+   * La addenda ya armada. La llena el SERVIDOR (ver completarAddenda) con el
+   * usuario de la sesión: nunca se toma la que venga del cliente.
+   */
+  addenda?: { usuario: string; fecha: string; hora: string; observaciones: string };
 };
 
 function round2(n: number) {
@@ -299,6 +323,18 @@ function buildDatosJSONPago(input: NuevaFacturaInput, pago: PagoInput) {
         Pago: [pagoJSON],
       },
     },
+    ...(input.addenda
+      ? {
+          Addenda: {
+            SistemaLocal: {
+              UsuarioDeSistema: input.addenda.usuario,
+              Fecha: input.addenda.fecha,
+              Hora: input.addenda.hora,
+              Observaciones: input.addenda.observaciones,
+            },
+          },
+        }
+      : {}),
   };
 }
 
@@ -312,7 +348,17 @@ export function buildDatosJSON(input: NuevaFacturaInput) {
   }
 
   const ahora = new Date();
-  const fechaISO = fechaLocalMexico(ahora);
+  const fechaISO = input.fecha || fechaLocalMexico(ahora);
+  const moneda = input.moneda || "MXN";
+  // Con MXN el SAT exige TipoCambio 1; con otra moneda, el que se capturó.
+  const tipoCambio = moneda === "MXN" ? "1" : input.tipoCambio || "1";
+
+  // Los complementos de concepto (iedu) van dentro de cada Concepto; los del
+  // comprobante, en el nodo Complemento. Vienen del mismo registro que la
+  // pantalla usa para pedirlos.
+  const complementosActivos = activos(input.complementos);
+  const deConcepto = complementosActivos.filter((c) => c.destino === "concepto");
+  const deComprobante = complementosActivos.filter((c) => c.destino === "comprobante");
 
   let subTotal = 0;
   const trasladosPorTasa = new Map<string, { impuesto: string; tasa: string; base: number; importe: number }>();
@@ -366,6 +412,15 @@ export function buildDatosJSON(input: NuevaFacturaInput) {
             },
           }
         : {}),
+      // Después de Impuestos: el esquema pone ComplementoConcepto al final
+      // del Concepto, y JSON_CFDI40 respeta el orden de las llaves.
+      ...(deConcepto.length > 0
+        ? {
+            ComplementoConcepto: Object.fromEntries(
+              deConcepto.map((def) => [def.nodo, def.aJson(input.complementos![def.id], { subtotal: 0 })])
+            ),
+          }
+        : {}),
     };
   });
 
@@ -375,7 +430,12 @@ export function buildDatosJSON(input: NuevaFacturaInput) {
   const totalRetenidos = round2(
     [...retencionesPorTasa.values()].reduce((acc, t) => acc + t.importe, 0)
   );
-  const total = round2(subTotal + totalTrasladados - totalRetenidos);
+  // Los impuestos locales (implocal) se suman o restan al Total además de
+  // los federales; es como los cuenta el SAT y como los revisa REGLAS_CFDI40.
+  const locales = totalesLocales(input.complementos, round2(subTotal));
+  const total = round2(
+    subTotal + totalTrasladados - totalRetenidos + locales.traslados - locales.retenciones
+  );
 
   // TotalImpuestos* solo debe mandarse cuando existe el nodo hijo
   // correspondiente - declararlo en "0.00" sin Traslados/Retenciones causa
@@ -441,13 +501,13 @@ export function buildDatosJSON(input: NuevaFacturaInput) {
     ...(condicionesDePago ? { CondicionesDePago: condicionesDePago } : {}),
     SubTotal: subTotal.toFixed(2),
     Descuento: "0.00",
-    Moneda: "MXN",
+    Moneda: moneda,
     FormaPago: input.formaPago,
     MetodoPago: input.metodoPago,
-    TipoCambio: "1",
+    TipoCambio: tipoCambio,
     Total: total.toFixed(2),
     TipoDeComprobante: input.tipoDeComprobante,
-    Exportacion: "01",
+    Exportacion: input.exportacion || "01",
     LugarExpedicion: input.lugarExpedicion,
     // El orden de las propiedades importa: JSON_CFDI40.php arma los nodos
     // del XML en el mismo orden en que aparecen aqui, y el schema CFDI 4.0
@@ -458,13 +518,20 @@ export function buildDatosJSON(input: NuevaFacturaInput) {
     // el receptor es "Publico en General" (XAXX010101000), incluso para una
     // sola factura (no solo para el resumen periodico "factura global") -
     // y debe OMITIRSE cuando el receptor es real (RFC especifico).
+    // La llave es "Año", con ñ: JSON_CFDI40 no reconoce "Anio".
     ...(llevaInformacionGlobal
       ? {
-          InformacionGlobal: {
-            Periodicidad: "01",
-            Meses: fechaISO.slice(5, 7),
-            Año: fechaISO.slice(0, 4),
-          },
+          InformacionGlobal: input.informacionGlobal
+            ? {
+                Periodicidad: input.informacionGlobal.periodicidad,
+                Meses: input.informacionGlobal.meses,
+                Año: input.informacionGlobal.anio,
+              }
+            : {
+                Periodicidad: "01",
+                Meses: fechaISO.slice(5, 7),
+                Año: fechaISO.slice(0, 4),
+              },
         }
       : {}),
     // CfdiRelacionados debe ser un ARREGLO: leerJson() lo pasa por
@@ -502,6 +569,53 @@ export function buildDatosJSON(input: NuevaFacturaInput) {
     },
     Conceptos: { Concepto: conceptosJSON },
     Impuestos: impuestosGlobal,
+    ...(deComprobante.length > 0
+      ? {
+          Complemento: Object.fromEntries(
+            deComprobante.map((def) => [
+              def.nodo,
+              def.aJson(input.complementos![def.id], { subtotal: round2(subTotal) }),
+            ])
+          ),
+        }
+      : {}),
+    // Las observaciones van como en el escritorio: <cfdi:SistemaLocal> dentro
+    // de la Addenda. No las revisa el SAT ni entran al sello.
+    ...(input.addenda
+      ? {
+          Addenda: {
+            SistemaLocal: {
+              UsuarioDeSistema: input.addenda.usuario,
+              Fecha: input.addenda.fecha,
+              Hora: input.addenda.hora,
+              Observaciones: input.addenda.observaciones,
+            },
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * Arma la addenda de observaciones con datos del servidor: el usuario de la
+ * sesión y la fecha y hora de ahora, en hora de México y con el formato del
+ * escritorio ("dd/mm/aaaa" y "HH:mm:ss"). Cualquier addenda que mande el
+ * cliente se descarta.
+ */
+async function completarAddenda(input: NuevaFacturaInput): Promise<NuevaFacturaInput> {
+  const observaciones = (input.observaciones ?? "").replace(/\s+/g, " ").trim();
+  if (!observaciones) return { ...input, addenda: undefined };
+
+  const usuario = await getCurrentUser().catch(() => null);
+  const ahora = fechaLocalMexico(new Date());
+  return {
+    ...input,
+    addenda: {
+      usuario: usuario?.Nombre || usuario?.Usuario || usuario?.Email || "",
+      fecha: `${ahora.slice(8, 10)}/${ahora.slice(5, 7)}/${ahora.slice(0, 4)}`,
+      hora: ahora.slice(11, 19),
+      observaciones,
+    },
   };
 }
 
@@ -546,7 +660,7 @@ export async function validarFactura(
   const session = await getSession();
   if (!session) return { Error: "1", DescripError: "No autenticado" };
 
-  const datosJSON = buildDatosJSON(input);
+  const datosJSON = buildDatosJSON(await completarAddenda(input));
   const datosJSON64 = Buffer.from(JSON.stringify(datosJSON)).toString("base64");
 
   return callLegacyPhpApi<ValidarResult>("/endpoint/apiTimbradoV2.php", {
@@ -565,7 +679,7 @@ export async function timbrarFactura(
   const session = await getSession();
   if (!session) return { Error: "1", DescripError: "No autenticado" };
 
-  const datosJSON = buildDatosJSON(input);
+  const datosJSON = buildDatosJSON(await completarAddenda(input));
   const datosJSON64 = Buffer.from(JSON.stringify(datosJSON)).toString("base64");
 
   return callLegacyPhpApi<TimbrarResult>("/endpoint/apiTimbradoV2.php", {

@@ -29,11 +29,14 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
  * es vieja, se emitió desde otro sistema o cae fuera del rango consultado).
  */
 export function RelacionarFacturaModal({
+  titulo = "Relacionar la factura que corrige",
   rfcEmisor,
   yaRelacionados,
   onClose,
   onAgregar,
 }: {
+  /** Cambia según quién relaciona: la nota de crédito corrige, la factura solo relaciona. */
+  titulo?: string;
   rfcEmisor: string;
   yaRelacionados: string[];
   onClose: () => void;
@@ -130,7 +133,7 @@ export function RelacionarFacturaModal({
   return (
     <Modal
       wide
-      title="Relacionar la factura que corrige"
+      title={titulo}
       onClose={onClose}
       footer={
         <>
