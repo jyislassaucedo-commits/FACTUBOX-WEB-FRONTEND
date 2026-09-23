@@ -1,0 +1,31 @@
+/* Mitad derecha del login: retícula isométrica sobre el gris de la app. */
+.escena {
+  background-color: var(--bg);
+  background-image:
+    repeating-linear-gradient(30deg, rgb(15 22 33 / 0.05) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(150deg, rgb(15 22 33 / 0.05) 0 1px, transparent 1px 34px);
+}
+
+/* Cada caja cae a su lugar una sola vez, al cargar. */
+.caja {
+  transform-box: fill-box;
+  animation: caer 0.5s cubic-bezier(0.3, 1.3, 0.5, 1) both;
+  animation-delay: calc(var(--i) * 90ms + 150ms);
+}
+
+@keyframes caer {
+  from {
+    opacity: 0;
+    transform: translateY(-60px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caja {
+    animation: none;
+  }
+}

@@ -9,7 +9,11 @@
    Asi el tema se cambia en un solo lugar.
 --------------------------------------------------------------------------- */
 
-:root {
+/* [data-theme="light"] en un elemento fija el tema claro para ese árbol aunque
+   <html> esté en oscuro (lo usa la pantalla de login). Funciona porque las
+   variables se heredan y la declaración propia del elemento gana. */
+:root,
+[data-theme="light"] {
   color-scheme: light;
 
   --background: #ffffff;
