@@ -1,9 +1,8 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Input, Note, Pill, SearchInput, Segmented, cx } from "@/components/ui";
+import { Note, Pill, SearchInput, Segmented, cx } from "@/components/ui";
 import { money, parseCfdi, type Cfdi } from "@/lib/cfdi";
-import type { Factura } from "@/lib/facturasShared";
 import {
   desdeApi,
   desdeXml,
@@ -17,6 +16,7 @@ import {
   type FacturaPagable,
   type FacturaRelacionadaApi,
   type PagoCaptura,
+  type PorPagar,
 } from "@/lib/pagosCaptura";
 
 /*
@@ -24,9 +24,6 @@ import {
    vigentes con saldo) o de XML que el usuario suelta. En cada renglón se
    decide cómo sigue una factura que ya tenía pagos.
 */
-
-const iso = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 /** El endpoint acepta hasta 100 folios fiscales por llamada. */
 const MAX_DETALLES = 100;
@@ -123,21 +120,16 @@ export function SelectorFacturasPago({
 /* De Factubox                                                                */
 /* -------------------------------------------------------------------------- */
 
-/** Renglones que se muestran de entrada y cuántos más con "Mostrar más". */
-const PAGINA = 25;
-/** Detalles por llamada: cada factura cuesta ~150 ms en el backend (lee su XML). */
-const LOTE = 10;
-
-/** Lo que el listado ya trae, para pintar el renglón mientras llega el detalle. */
-function provisional(f: Factura): FacturaPagable {
+/** Lo que trae la lista de por pagar, para pintar el renglón antes del detalle. */
+function provisional(f: PorPagar["Facturas"][number], receptor: { rfc: string; nombre: string }): FacturaPagable {
   return {
-    uuid: f.Uuid.toUpperCase(),
+    uuid: f.Uuid,
     serie: f.Serie,
     folio: f.Folio,
-    fecha: f.FechaEmision.slice(0, 10),
+    fecha: f.Fecha.slice(0, 10),
     total: parseFloat(f.Total) || 0,
     moneda: f.Moneda || "MXN",
-    receptor: { rfc: f.RfcReceptor, nombre: f.NombreReceptor, regimen: f.RegimenReceptor, cp: f.DomicilioReceptor },
+    receptor: { rfc: receptor.rfc, nombre: receptor.nombre, regimen: "", cp: "" },
     origen: "factubox",
     traslados: [],
     retenciones: [],
@@ -146,12 +138,24 @@ function provisional(f: Factura): FacturaPagable {
   };
 }
 
+/** "$56,000.00 · 860.00 USD": un saldo por moneda, sin sumarlas. */
+function saldos(s: Record<string, string>) {
+  return Object.entries(s)
+    .map(([m, v]) => money(v, m))
+    .join(" · ");
+}
+
+/*
+   "De Factubox", primero el receptor: con cientos de facturas PPD de un solo
+   receptor (Público en general de un lote), una lista por fecha enterraba las
+   facturas madre. Se elige de quién es el pago y solo salen las suyas. Todo el
+   historial, con el saldo ya calculado en el servidor.
+*/
 function DeFactubox({
   rfcEmisor,
   c,
   pago,
   receptorEd,
-  nombreReceptorEd,
   onElegir,
   onQuitar,
   onDecision,
@@ -165,173 +169,200 @@ function DeFactubox({
   onQuitar: (uuid: string) => void;
   onDecision: (uuid: string, d: Decision) => void;
 }) {
-  const hoy = new Date();
-  const [desde, setDesde] = useState(iso(new Date(hoy.getFullYear() - 1, hoy.getMonth(), 1)));
-  const [hasta, setHasta] = useState(iso(hoy));
-  const [q, setQ] = useState("");
-  const [soloReceptor, setSoloReceptor] = useState(true);
-  const [limite, setLimite] = useState(PAGINA);
+  // Cacheado con la clave que lo produjo (ver RelacionarFacturaModal): así
+  // "cargando" se deriva sin setState dentro del efecto.
+  const [cache, setCache] = useState<{ clave: string; datos: PorPagar | null; error: string | null } | null>(null);
+  const vigente = cache?.clave === rfcEmisor ? cache : null;
 
-  // El listado sale rápido (una consulta); el saldo y los impuestos de cada
-  // factura, no. Se pinta la lista y el detalle llega por lotes, solo para
-  // los renglones visibles.
-  const clave = `${rfcEmisor}|${desde}|${hasta}`;
-  const [cache, setCache] = useState<{ clave: string; facturas: Factura[]; error: string | null } | null>(null);
-  const vigente = cache?.clave === clave ? cache : null;
-  /** Detalle por folio fiscal; null = no está en Factubox para este emisor. */
-  const [detalles, setDetalles] = useState<Record<string, FacturaPagable | null>>({});
+  /** El receptor que se está viendo. Sin elegir, se sigue al del pago. */
+  const [elegido, setElegido] = useState<string | null>(null);
+  const [cambiando, setCambiando] = useState(false);
+  const receptor = cambiando ? null : (elegido ?? receptorEd);
+  const [qReceptor, setQReceptor] = useState("");
+  const [qFactura, setQFactura] = useState("");
+  /** Folios fiscales cuyo detalle (impuestos, historial) se está trayendo. */
+  const [trayendo, setTrayendo] = useState<string[]>([]);
   const [errorDetalle, setErrorDetalle] = useState<string | null>(null);
-  const [enVuelo, setEnVuelo] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!rfcEmisor || desde > hasta) return;
+    if (!rfcEmisor) return;
     let vivo = true;
-    const params = new URLSearchParams({
-      emisor: rfcEmisor,
-      tipo: "I",
-      estatus: "Vigente",
-      metodoPago: "PPD",
-      desde,
-      hasta,
-    });
-    fetch(`/api/facturas/buscar?${params.toString()}`)
+    fetch(`/api/facturas/por-pagar?rfcEmisor=${encodeURIComponent(rfcEmisor)}`)
       .then(async (res) => {
         const body = await res.json();
-        if (!res.ok) throw new Error(body.error ?? "No se pudo buscar");
-        // El filtro del backend es por texto: se asegura aquí también.
-        return (body.facturas as Factura[])
-          .filter((f) => f.MetodoPago === "PPD")
-          .sort((a, b) => b.FechaEmision.localeCompare(a.FechaEmision));
+        if (!res.ok) throw new Error(body.error ?? "No se pudieron consultar las facturas por pagar");
+        return body as PorPagar;
       })
-      .then((facturas) => vivo && setCache({ clave, facturas, error: null }))
+      .then((datos) => vivo && setCache({ clave: rfcEmisor, datos, error: null }))
       .catch((e: unknown) => {
         if (!vivo) return;
-        setCache({ clave, facturas: [], error: e instanceof Error ? e.message : "No se pudo buscar" });
+        setCache({ clave: rfcEmisor, datos: null, error: e instanceof Error ? e.message : "No se pudo consultar" });
       });
     return () => {
       vivo = false;
     };
-  }, [clave, rfcEmisor, desde, hasta]);
+  }, [rfcEmisor]);
 
-  const query = q.trim().toLowerCase();
+  const datos = vigente?.datos ?? null;
+  const infoReceptor = datos?.Receptores.find((r) => r.Rfc === receptor) ?? null;
 
-  const { filas, hayMas } = useMemo(() => {
-    const elegidas = pago.docs.map((d) => d.uuid);
-    const conDetalle: CapturaPagos = {
-      ...c,
-      facturas: {
-        ...Object.fromEntries(
-          Object.entries(detalles).filter((e): e is [string, FacturaPagable] => e[1] !== null)
-        ),
-        ...c.facturas,
-      },
-    };
-    const todas: Array<{ f: FacturaPagable; disp: number | null }> = [];
-    for (const lf of vigente?.facturas ?? []) {
-      const uuid = lf.Uuid.toUpperCase();
-      if (elegidas.includes(uuid)) continue;
-      const det = detalles[uuid];
-      if (det === null) continue;
-      if (soloReceptor && receptorEd && lf.RfcReceptor !== receptorEd) continue;
-      if (
-        query &&
-        !`${lf.Serie}-${lf.Folio} ${lf.NombreReceptor} ${lf.RfcReceptor} ${lf.Total} ${lf.Uuid}`
-          .toLowerCase()
-          .includes(query)
-      ) {
+  const receptoresVista = useMemo(() => {
+    const q = qReceptor.trim().toLowerCase();
+    return (datos?.Receptores ?? []).filter((r) => !q || `${r.Nombre} ${r.Rfc}`.toLowerCase().includes(q));
+  }, [datos, qReceptor]);
+
+  const filas = useMemo(() => {
+    if (!receptor) return [];
+    const q = qFactura.trim().toLowerCase();
+    const nombre = infoReceptor?.Nombre ?? c.facturas[pago.docs[0]?.uuid]?.receptor.nombre ?? receptor;
+    const res: Array<{ f: FacturaPagable; disp: number | null }> = [];
+    // Las ya elegidas primero, aunque sean de otro receptor.
+    for (const d of pago.docs) {
+      const f = c.facturas[d.uuid];
+      if (f) res.push({ f, disp: saldoDisponible(c, d.uuid, pago.id) });
+    }
+    for (const lf of datos?.Facturas ?? []) {
+      if (lf.RfcReceptor !== receptor || pago.docs.some((d) => d.uuid === lf.Uuid)) continue;
+      if (q && !`${lf.Serie}-${lf.Folio} ${lf.Total} ${lf.Saldo} ${lf.Uuid}`.toLowerCase().includes(q)) continue;
+      const conocida = c.facturas[lf.Uuid];
+      if (trayendo.includes(lf.Uuid)) {
+        res.push({ f: conocida ?? provisional(lf, { rfc: receptor, nombre }), disp: null });
         continue;
       }
-      const conocida = conDetalle.facturas[uuid];
-      const disp = conocida ? saldoDisponible(conDetalle, uuid, pago.id) : null;
-      // Ya pagada del todo: no hay nada que cubrir.
-      if (disp !== null && disp <= 0.004) continue;
-      todas.push({ f: conocida ?? provisional(lf), disp });
+      // Lo que ya se usó en otros pagos de esta captura también cuenta.
+      const disp = conocida ? saldoDisponible(c, lf.Uuid, pago.id) : parseFloat(lf.Saldo) || 0;
+      if (disp <= 0.004) continue;
+      res.push({ f: conocida ?? provisional(lf, { rfc: receptor, nombre }), disp });
     }
-    // Las elegidas van primero, aunque no salgan en el rango.
-    const arriba = elegidas
-      .filter((u) => conDetalle.facturas[u])
-      .map((u) => ({ f: conDetalle.facturas[u], disp: saldoDisponible(conDetalle, u, pago.id) as number | null }));
-    return { filas: [...arriba, ...todas.slice(0, limite)], hayMas: todas.length > limite };
-  }, [vigente, detalles, c, pago.docs, pago.id, soloReceptor, receptorEd, query, limite]);
+    return res;
+  }, [receptor, qFactura, infoReceptor, c, pago, datos, trayendo]);
 
-  // Trae, por lotes, el detalle de los renglones visibles que aún no lo tienen.
-  const claveFaltan = filas
-    .filter((x) => x.disp === null && !enVuelo.includes(x.f.uuid))
-    .slice(0, LOTE)
-    .map((x) => x.f.uuid)
-    .join(",");
-  useEffect(() => {
-    if (!claveFaltan || enVuelo.length > 0) return;
-    const lote = claveFaltan.split(",");
-    let vivo = true;
-    // Se marca en vuelo desde el callback de la promesa para no encadenar renders.
-    Promise.resolve()
-      .then(() => vivo && setEnVuelo(lote))
-      .then(() => traerRelacionadas(rfcEmisor, lote))
-      .then((lista) => {
-        const nuevos: Record<string, FacturaPagable | null> = {};
-        for (const a of lista) nuevos[a.Uuid.toUpperCase()] = desdeApi(a);
-        for (const u of lote) if (!(u in nuevos)) nuevos[u] = null;
-        setDetalles((prev) => ({ ...prev, ...nuevos }));
-      })
-      .catch((e: unknown) => setErrorDetalle(e instanceof Error ? e.message : "No se pudo consultar los saldos"))
-      .finally(() => setEnVuelo([]));
-    return () => {
-      vivo = false;
-    };
-  }, [claveFaltan, rfcEmisor, enVuelo.length]);
+  /** Al marcarla se traen sus impuestos y su historial; luego queda elegida. */
+  async function elegir(f: FacturaPagable) {
+    if (c.facturas[f.uuid]) {
+      onElegir(c.facturas[f.uuid]);
+      return;
+    }
+    setErrorDetalle(null);
+    setTrayendo((prev) => [...prev, f.uuid]);
+    try {
+      const [api] = await traerRelacionadas(rfcEmisor, [f.uuid]);
+      const completa = api ? desdeApi(api) : null;
+      if (!completa) throw new Error(`No se encontró ${folioDe(f)} entre las facturas de este emisor.`);
+      onElegir(completa);
+    } catch (e) {
+      setErrorDetalle(e instanceof Error ? e.message : "No se pudo consultar la factura");
+    } finally {
+      setTrayendo((prev) => prev.filter((u) => u !== f.uuid));
+    }
+  }
 
-  const cargando = Boolean(rfcEmisor) && !vigente && desde <= hasta;
+  if (vigente?.error) return <Note tone="danger">{vigente.error}</Note>;
+  if (!datos) {
+    return (
+      <p className="rounded-xl border border-line bg-surface px-4 py-6 text-center text-[13px] text-ink-3">
+        Buscando facturas PPD con saldo…
+      </p>
+    );
+  }
 
+  /* ---------- ¿De quién es el pago? ---------- */
+  if (!receptor) {
+    return (
+      <div className="space-y-3">
+        <p className="text-[13.5px] font-semibold text-ink">¿De quién es el pago?</p>
+        <SearchInput
+          placeholder="Buscar receptor por nombre o RFC"
+          value={qReceptor}
+          onChange={(e) => setQReceptor(e.target.value)}
+          aria-label="Buscar receptor"
+        />
+        {receptoresVista.length === 0 ? (
+          <p className="rounded-xl border border-line bg-surface px-4 py-6 text-center text-[13px] text-ink-3">
+            {datos.Receptores.length === 0
+              ? "Este emisor no tiene facturas PPD con saldo pendiente."
+              : "Ningún receptor coincide con la búsqueda."}
+          </p>
+        ) : (
+          <ul className="divide-y divide-line-2 overflow-hidden rounded-xl border border-line bg-surface">
+            {receptoresVista.map((r) => (
+              <li key={r.Rfc}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setElegido(r.Rfc);
+                    setCambiando(false);
+                    setQFactura("");
+                  }}
+                  className="focus-brand flex w-full flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3.5 py-2.5 text-left transition hover:bg-surface-2"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13.5px] font-semibold text-ink">{r.Nombre}</span>
+                    <span className="font-mono text-[11.5px] text-ink-4">{r.Rfc}</span>
+                  </span>
+                  <span className="text-right">
+                    <span className="block font-mono text-[13px] font-semibold text-ink">{saldos(r.Saldos)}</span>
+                    <span className="text-[11.5px] text-ink-3">
+                      {r.Facturas} factura{r.Facturas === 1 ? "" : "s"} con saldo
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
+  /* ---------- Las facturas del receptor ---------- */
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
-        <SearchInput
-          placeholder="Buscar por folio, receptor o importe"
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setLimite(PAGINA);
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface-2 px-3.5 py-2.5">
+        <span className="min-w-0">
+          <span className="block truncate text-[13.5px] font-semibold text-ink">
+            {infoReceptor?.Nombre ?? c.facturas[pago.docs[0]?.uuid]?.receptor.nombre ?? receptor}
+          </span>
+          <span className="text-[12px] text-ink-3">
+            {infoReceptor
+              ? `${infoReceptor.Facturas} factura${infoReceptor.Facturas === 1 ? "" : "s"} con saldo · ${saldos(infoReceptor.Saldos)}`
+              : receptor}
+          </span>
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            setCambiando(true);
+            setQReceptor("");
           }}
-          aria-label="Buscar factura"
-        />
-        <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} aria-label="Desde" />
-        <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} aria-label="Hasta" />
+          className="focus-brand rounded text-[12.5px] font-semibold text-brand underline"
+        >
+          Cambiar receptor
+        </button>
       </div>
-      {receptorEd && (
-        <label className="inline-flex items-center gap-2 text-[12.5px] text-ink-2">
-          <input
-            type="checkbox"
-            checked={soloReceptor}
-            onChange={(e) => setSoloReceptor(e.target.checked)}
-            className="size-4 accent-[var(--brand)]"
-          />
-          Solo de {nombreReceptorEd}
-        </label>
+      {receptorEd && receptor !== receptorEd && (
+        <Note tone="warn">
+          Este pago ya tiene facturas de otro receptor. Si agregas de este, al guardarlo se dividirá en un pago por
+          receptor, y cada uno irá en su propio complemento.
+        </Note>
       )}
-
-      {vigente?.error && <Note tone="danger">{vigente.error}</Note>}
+      <SearchInput
+        placeholder="Buscar por folio o importe"
+        value={qFactura}
+        onChange={(e) => setQFactura(e.target.value)}
+        aria-label="Buscar factura"
+      />
       {errorDetalle && <Note tone="danger">{errorDetalle}</Note>}
-
       <TablaFacturas
         filas={filas}
         c={c}
         pago={pago}
         receptorEd={receptorEd}
-        vacio={cargando ? "Buscando facturas PPD…" : "No hay facturas PPD con saldo que coincidan."}
-        onElegir={onElegir}
+        vacio="Este receptor no tiene facturas PPD con saldo que coincidan."
+        onElegir={elegir}
         onQuitar={onQuitar}
         onDecision={onDecision}
       />
-      {hayMas && (
-        <button
-          type="button"
-          onClick={() => setLimite((n) => n + PAGINA)}
-          className="focus-brand rounded text-[12.5px] font-semibold text-brand underline"
-        >
-          Mostrar más facturas
-        </button>
-      )}
     </div>
   );
 }

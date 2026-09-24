@@ -98,7 +98,9 @@ function trunc2(n: number) {
 /** Parcialidad y saldo con que empieza una factura, según su historial y la decisión. */
 export function inicio(f: FacturaPagable, decision?: Decision) {
   if (f.previos.length > 0 && decision !== "cero") {
-    const ultimo = f.previos.reduce((a, b) => (b.parcialidad > a.parcialidad ? b : a));
+    // Vienen de la primera a la última (ver PAGO_DOCTO_SERVICE::pagosDe): con dos
+    // cadenas que chocan en la misma parcialidad, manda la que llega después.
+    const ultimo = f.previos.reduce((a, b) => (b.parcialidad >= a.parcialidad ? b : a));
     return { parcialidad: ultimo.parcialidad + 1, saldo: ultimo.insoluto };
   }
   if (f.complementoPrevio && decision !== "primero") {
@@ -497,3 +499,18 @@ export function ultimaParcialidadEn(cfdi: Cfdi, uuid: string, archivo: string) {
   }
   return mejor;
 }
+
+/** Lo que devuelve /api/facturas/por-pagar: PPD con saldo, por receptor. */
+export type PorPagar = {
+  Receptores: Array<{ Rfc: string; Nombre: string; Facturas: number; Saldos: Record<string, string> }>;
+  Facturas: Array<{
+    Uuid: string;
+    Serie: string;
+    Folio: string;
+    Fecha: string;
+    Total: string;
+    Moneda: string;
+    Saldo: string;
+    RfcReceptor: string;
+  }>;
+};
