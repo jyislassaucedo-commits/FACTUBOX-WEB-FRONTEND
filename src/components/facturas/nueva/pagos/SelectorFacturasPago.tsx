@@ -42,6 +42,74 @@ async function traerRelacionadas(rfcEmisor: string, uuids: string[]): Promise<Fa
   return body.facturas as FacturaRelacionadaApi[];
 }
 
+/*
+   El servidor PHP abre un grupo de ~20 procesos por cada petición que le llega
+   al mismo tiempo que otra, y no los suelta en horas; el servidor compartido ya
+   se quedó sin memoria por eso. De ahí los dos ahorros de abajo.
+*/
+
+/**
+ * Las facturas que se marcan seguidas se piden juntas: esperar un momento y
+ * mandar una sola llamada, en vez de una por clic que se enciman.
+ */
+const LOTE_MS = 150;
+type Espera = { resolve: (f: FacturaRelacionadaApi | undefined) => void; reject: (e: unknown) => void };
+let lote: { rfcEmisor: string; esperas: Map<string, Espera[]>; timer: ReturnType<typeof setTimeout> } | null = null;
+
+function soltarLote() {
+  if (!lote) return;
+  const { rfcEmisor, esperas, timer } = lote;
+  clearTimeout(timer);
+  lote = null;
+  traerRelacionadas(rfcEmisor, [...esperas.keys()]).then(
+    (lista) => {
+      const porUuid = new Map(lista.map((f) => [f.Uuid.toUpperCase(), f]));
+      for (const [uuid, es] of esperas) for (const e of es) e.resolve(porUuid.get(uuid.toUpperCase()));
+    },
+    (err) => {
+      for (const es of esperas.values()) for (const e of es) e.reject(err);
+    }
+  );
+}
+
+function pedirRelacionada(rfcEmisor: string, uuid: string): Promise<FacturaRelacionadaApi | undefined> {
+  if (lote && lote.rfcEmisor !== rfcEmisor) soltarLote();
+  if (!lote) lote = { rfcEmisor, esperas: new Map(), timer: setTimeout(soltarLote, LOTE_MS) };
+  const actual = lote;
+  return new Promise((resolve, reject) => {
+    actual.esperas.set(uuid, [...(actual.esperas.get(uuid) ?? []), { resolve, reject }]);
+    if (actual.esperas.size >= MAX_DETALLES) soltarLote();
+  });
+}
+
+/**
+ * Las facturas por pagar de cada emisor, para no volver a pedirlas cada vez
+ * que se abre otro pago de la captura. Caducan solas en unos minutos (se pudo
+ * timbrar en otra pestaña) y se olvidan al timbrar, que cambia los saldos.
+ */
+const POR_PAGAR_VIGENCIA_MS = 2 * 60 * 1000;
+const porPagarCache = new Map<string, { hasta: number; datos: Promise<PorPagar> }>();
+
+export function olvidarPorPagar() {
+  porPagarCache.clear();
+}
+
+function pedirPorPagar(rfcEmisor: string): Promise<PorPagar> {
+  const guardado = porPagarCache.get(rfcEmisor);
+  if (guardado && guardado.hasta > Date.now()) return guardado.datos;
+  const datos = fetch(`/api/facturas/por-pagar?rfcEmisor=${encodeURIComponent(rfcEmisor)}`).then(async (res) => {
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error ?? "No se pudieron consultar las facturas por pagar");
+    return body as PorPagar;
+  });
+  porPagarCache.set(rfcEmisor, { hasta: Date.now() + POR_PAGAR_VIGENCIA_MS, datos });
+  // Un error no se guarda: el siguiente intento vuelve a preguntar.
+  datos.catch(() => {
+    if (porPagarCache.get(rfcEmisor)?.datos === datos) porPagarCache.delete(rfcEmisor);
+  });
+  return datos;
+}
+
 type RenglonXml = {
   archivo: string;
   folio: string;
@@ -192,12 +260,7 @@ function DeFactubox({
   useEffect(() => {
     if (!rfcEmisor) return;
     let vivo = true;
-    fetch(`/api/facturas/por-pagar?rfcEmisor=${encodeURIComponent(rfcEmisor)}`)
-      .then(async (res) => {
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.error ?? "No se pudieron consultar las facturas por pagar");
-        return body as PorPagar;
-      })
+    pedirPorPagar(rfcEmisor)
       .then((datos) => vivo && setCache({ clave: rfcEmisor, datos, error: null }))
       .catch((e: unknown) => {
         if (!vivo) return;
@@ -251,7 +314,7 @@ function DeFactubox({
     setErrorDetalle(null);
     setTrayendo((prev) => [...prev, f.uuid]);
     try {
-      const [api] = await traerRelacionadas(rfcEmisor, [f.uuid]);
+      const api = await pedirRelacionada(rfcEmisor, f.uuid);
       const completa = api ? desdeApi(api) : null;
       if (!completa) throw new Error(`No se encontró ${folioDe(f)} entre las facturas de este emisor.`);
       onElegir(completa);

@@ -24,6 +24,7 @@ import {
 import { activos } from "@/lib/complementos";
 import { ResultadoTimbrado, RevisionSat } from "./PasosNuevaFactura";
 import { PasoPagos, type EditorAbierto } from "./nueva/pagos/PasoPagos";
+import { olvidarPorPagar } from "./nueva/pagos/SelectorFacturasPago";
 import { ResultadoComplementos, RevisionComplementos, type Emitido } from "./nueva/pagos/RevisionComplementos";
 import { aPagosInput, complementosPorReceptor, totalEnPesos } from "@/lib/pagosCaptura";
 import {
@@ -611,6 +612,8 @@ export function NuevaFacturaWizard({
     }
 
     const bien = lista.filter((e) => e.ok).length;
+    // Un complemento cambia saldos y una factura PPD nueva entra a la lista.
+    if (bien > 0) olvidarPorPagar();
     if (bien === 0) {
       // Nada se timbró: se queda en la revisión para corregir.
       setErrorEnvio(
