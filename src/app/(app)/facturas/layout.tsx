@@ -1,29 +1,9 @@
-import { getEmisores } from "@/lib/emisores";
-import { resolverRfcActivo, TODOS } from "@/lib/emisorActivo";
-import { FacturasNav } from "@/components/facturas/FacturasNav";
-
 /**
- * Facturas: todo lo que se emite, bajo un mismo lateral.
- *
- * El emisor no viaja en la dirección — sale de la barra superior. Por eso este
- * layout no lleva [rfc] y las secciones que emiten preguntan por él cuando está
- * en "todos".
+ * Facturas: todo lo que se emite. Las secciones y lo que se puede emitir
+ * están en el menú "Facturas" de la barra superior (AppShell), no en un
+ * lateral: así cada pantalla usa todo el ancho, que el asistente de nueva
+ * factura necesita para su riel, el paso y el comprobante.
  */
-export default async function FacturasLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const emisores = await getEmisores();
-  const rfcActivo = await resolverRfcActivo(emisores);
-
-  return (
-    <div className="grid items-start gap-6 lg:grid-cols-[252px_minmax(0,1fr)]">
-      <aside>
-        <FacturasNav hayEmisor={rfcActivo !== TODOS} />
-      </aside>
-
-      <div className="min-w-0">{children}</div>
-    </div>
-  );
+export default function FacturasLayout({ children }: { children: React.ReactNode }) {
+  return <div className="min-w-0">{children}</div>;
 }

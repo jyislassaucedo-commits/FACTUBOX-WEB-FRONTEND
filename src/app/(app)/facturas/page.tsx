@@ -1,7 +1,8 @@
 import { FacturasSection } from "@/components/facturas/FacturasSection";
 import { getFacturas, type FacturasFiltros } from "@/lib/facturas";
 import { getEmisores } from "@/lib/emisores";
-import { resolverRfcActivo } from "@/lib/emisorActivo";
+import { resolverRfcActivo, TODOS } from "@/lib/emisorActivo";
+import { NuevaSplitButton } from "@/components/facturas/NuevaSplitButton";
 
 const ISO = (d: Date) => d.toISOString().slice(0, 10);
 const ES_FECHA = /^\d{4}-\d{2}-\d{2}$/;
@@ -74,6 +75,7 @@ export default async function FacturasPage({
               : "Comprobantes de todos tus emisores. Haz clic en una fila para ver el CFDI completo."}
           </p>
         </div>
+        <NuevaSplitButton hayEmisor={rfcActivo !== TODOS} alinear="derecha" />
       </div>
 
       <FacturasSection facturas={facturas} filtros={filtros} />

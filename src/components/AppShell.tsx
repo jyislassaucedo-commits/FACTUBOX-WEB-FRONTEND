@@ -12,6 +12,7 @@ import { ProgresoProvider } from "@/components/carga/ProgresoProvider";
 import { BarraProgreso } from "@/components/carga/BarraProgreso";
 import { PantallaBloqueante } from "@/components/carga/PantallaBloqueante";
 import { EMISOR_SECTIONS, emisorHref } from "@/lib/emisorNav";
+import { EMITIR, FACTURAS_SECTIONS, facturasHref, seccionActiva } from "@/lib/facturasNav";
 import { TimbresBadge } from "@/components/TimbresBadge";
 import { SelectorEmisor } from "@/components/SelectorEmisor";
 import type { CurrentUser } from "@/lib/currentUser";
@@ -79,6 +80,8 @@ export function AppShell({
             {NAV_ITEMS.map((item) =>
               item.href === "/emisores" ? (
                 <EmisoresMenu key={item.href} pathname={pathname} rfcActual={rfcActual} />
+              ) : item.href === "/facturas" ? (
+                <FacturasMenu key={item.href} pathname={pathname} rfcActual={rfcActual} />
               ) : (
                 <TopLink
                   key={item.href}
@@ -132,8 +135,8 @@ export function AppShell({
 
               <nav className="space-y-1">
                 {NAV_ITEMS.map((item) => (
+                  <div key={item.href}>
                   <Link
-                    key={item.href}
                     href={item.href}
                     onClick={() => setMobileNavOpen(false)}
                     className={cx(
@@ -145,6 +148,37 @@ export function AppShell({
                   >
                     {item.label}
                   </Link>
+                  {item.href === "/facturas" && (
+                    <div className="my-1 ml-3 space-y-0.5 border-l-2 border-line-2 pl-2">
+                      {FACTURAS_SECTIONS.map((section) => (
+                        <Link
+                          key={section.key}
+                          href={facturasHref(section.segment)}
+                          onClick={() => setMobileNavOpen(false)}
+                          className={cx(
+                            "block rounded-[10px] px-3 py-1.5 text-[13px] font-medium transition",
+                            seccionActiva(pathname) === section.key
+                              ? "text-brand-600"
+                              : "text-ink-2 hover:bg-line-2"
+                          )}
+                        >
+                          {section.label}
+                        </Link>
+                      ))}
+                      {rfcActual &&
+                        EMITIR.slice(0, 3).map((e, i) => (
+                          <Link
+                            key={e.href}
+                            href={e.href}
+                            onClick={() => setMobileNavOpen(false)}
+                            className="block rounded-[10px] px-3 py-1.5 text-[13px] font-medium text-brand hover:bg-line-2"
+                          >
+                            {["Nueva factura", "Nuevo complemento de pago", "Nueva nota de crédito"][i] ?? e.label}
+                          </Link>
+                        ))}
+                    </div>
+                  )}
+                  </div>
                 ))}
               </nav>
 
@@ -219,17 +253,10 @@ function TopLink({
 }
 
 /**
- * "Emisores" en la barra superior es un dropdown: si hay un emisor abierto,
- * lista sus secciones (receptores, series y folios, disenos...) para saltar
- * directo sin pasar por la pantalla del emisor.
+ * Abre y cierra un menú de la barra: se cierra al hacer clic fuera o con Esc.
+ * Lo comparten "Emisores" y "Facturas".
  */
-function EmisoresMenu({
-  pathname,
-  rfcActual,
-}: {
-  pathname: string;
-  rfcActual: string | null;
-}) {
+function useMenuBarra() {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -249,32 +276,64 @@ function EmisoresMenu({
     };
   }, [open]);
 
+  return { open, setOpen, wrapRef };
+}
+
+function BotonMenu({
+  label,
+  active,
+  open,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  open: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-haspopup="menu"
+      aria-expanded={open}
+      onClick={onClick}
+      className={cx(
+        "focus-brand flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-sm font-medium transition",
+        active ? "bg-brand-050 text-brand-600" : "text-ink-2 hover:bg-line-2 hover:text-ink"
+      )}
+    >
+      {label}
+      <svg
+        width="10"
+        height="10"
+        viewBox="0 0 10 10"
+        fill="none"
+        className={cx("transition", open && "rotate-180")}
+        aria-hidden
+      >
+        <path d="M1 3.5L5 7l4-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * "Emisores" en la barra superior es un dropdown: si hay un emisor abierto,
+ * lista sus secciones (receptores, series y folios, disenos...) para saltar
+ * directo sin pasar por la pantalla del emisor.
+ */
+function EmisoresMenu({
+  pathname,
+  rfcActual,
+}: {
+  pathname: string;
+  rfcActual: string | null;
+}) {
+  const { open, setOpen, wrapRef } = useMenuBarra();
   const active = pathname.startsWith("/emisores");
 
   return (
     <div ref={wrapRef} className="relative">
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className={cx(
-          "focus-brand flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-sm font-medium transition",
-          active ? "bg-brand-050 text-brand-600" : "text-ink-2 hover:bg-line-2 hover:text-ink"
-        )}
-      >
-        Emisores
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 10 10"
-          fill="none"
-          className={cx("transition", open && "rotate-180")}
-          aria-hidden
-        >
-          <path d="M1 3.5L5 7l4-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      </button>
+      <BotonMenu label="Emisores" active={active} open={open} onClick={() => setOpen((v) => !v)} />
 
       {open && (
         <div
@@ -323,6 +382,100 @@ function EmisoresMenu({
     </div>
   );
 }
+
+/**
+ * "Facturas" en la barra: a dónde ir (las secciones) y qué emitir. Sustituye
+ * al lateral que tenía Facturas, que le quitaba 252 px a cada pantalla.
+ *
+ * Emitir necesita un emisor concreto: con "todos" activo se dice en vez de
+ * llevar a una pantalla que va a rebotar.
+ */
+function FacturasMenu({
+  pathname,
+  rfcActual,
+}: {
+  pathname: string;
+  rfcActual: string | null;
+}) {
+  const { open, setOpen, wrapRef } = useMenuBarra();
+  const active = pathname.startsWith("/facturas");
+  const seccion = seccionActiva(pathname);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <BotonMenu label="Facturas" active={active} open={open} onClick={() => setOpen((v) => !v)} />
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-0 top-[calc(100%+8px)] grid w-[600px] grid-cols-2 gap-1.5 rounded-2xl border border-line bg-surface p-2.5 shadow-pop"
+        >
+          <div>
+            <p className="px-2.5 pb-1.5 pt-1 text-[12px] font-semibold text-ink-3">Ver</p>
+            {FACTURAS_SECTIONS.map((section) => (
+              <Link
+                key={section.key}
+                href={facturasHref(section.segment)}
+                role="menuitem"
+                aria-current={seccion === section.key ? "page" : undefined}
+                onClick={() => setOpen(false)}
+                className={cx(
+                  "focus-brand block rounded-xl px-2.5 py-2 transition hover:bg-surface-2",
+                  seccion === section.key && "bg-surface-2"
+                )}
+              >
+                <span className="block text-[13px] font-semibold text-ink">{section.label}</span>
+                <span className="mt-0.5 block text-[11.5px] leading-snug text-ink-3">{section.description}</span>
+              </Link>
+            ))}
+          </div>
+
+          <div className="border-l border-line-2 pl-1.5">
+            <p className="truncate px-2.5 pb-1.5 pt-1 text-[12px] font-semibold text-ink-3">
+              {rfcActual ? `Emitir con ${rfcActual}` : "Emitir"}
+            </p>
+            {rfcActual ? (
+              EMITIR.map((e, i) => (
+                <Link
+                  key={e.href}
+                  href={e.href}
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                  className={cx(
+                    "focus-brand block rounded-xl px-2.5 py-2 transition",
+                    i === 0 ? "bg-brand-050 hover:bg-brand-100" : "hover:bg-surface-2"
+                  )}
+                >
+                  <span className={cx("block text-[13px] font-semibold", i === 0 ? "text-brand-600" : "text-ink")}>
+                    {i === 0 ? "Nueva factura" : e.label}
+                  </span>
+                  <span className="mt-0.5 block text-[11.5px] leading-snug text-ink-3">{e.detalle}</span>
+                </Link>
+              ))
+            ) : (
+              <p className="px-2.5 py-3 text-[13px] text-ink-3">
+                Elige un emisor arriba a la derecha para poder emitir: cada comprobante sale de uno.
+              </p>
+            )}
+          </div>
+
+          {rfcActual && (
+            <div className="col-span-2 flex justify-end border-t border-line-2 px-2.5 pt-2">
+              <Link
+                href="/facturas/nueva"
+                onClick={() => setOpen(false)}
+                className="focus-brand rounded text-[12.5px] font-medium text-brand hover:underline"
+              >
+                Ver todos los tipos
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function MenuIcon() {
   return (

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { cx } from "@/components/ui";
+import { EMITIR } from "@/lib/facturasNav";
 
 /* ---------------------------------------------------------------------------
    "Nueva": botón dividido.
@@ -16,18 +17,17 @@ import { cx } from "@/components/ui";
    puerta para lo que no está en la lista corta.
 --------------------------------------------------------------------------- */
 
-const OTROS = [
-  { href: "/facturas/nomina", label: "Recibo de nómina", detalle: "Se corre por periodo" },
-  { href: "/facturas/nueva?tipo=P", label: "Complemento de pago", detalle: "Cuando te pagan una PPD" },
-  {
-    href: "/facturas/nueva?tipo=I&modo=plantilla",
-    label: "Subir plantilla de Excel",
-    detalle: "Muchas de golpe",
-  },
-  { href: "/facturas/nueva?tipo=E", label: "Nota de crédito", detalle: "Devoluciones y descuentos" },
-];
+/** Todo menos la factura de ingreso, que ya es el botón. */
+const OTROS = EMITIR.slice(1);
 
-export function NuevaSplitButton({ hayEmisor }: { hayEmisor: boolean }) {
+export function NuevaSplitButton({
+  hayEmisor,
+  alinear = "izquierda",
+}: {
+  hayEmisor: boolean;
+  /** De qué lado abre el menú: a la derecha cuando el botón está al borde derecho. */
+  alinear?: "izquierda" | "derecha";
+}) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -88,7 +88,10 @@ export function NuevaSplitButton({ hayEmisor }: { hayEmisor: boolean }) {
       {open && (
         <div
           role="menu"
-          className="absolute left-0 top-[calc(100%+6px)] z-30 w-[280px] rounded-2xl border border-line bg-surface p-1.5 shadow-pop"
+          className={cx(
+            "absolute top-[calc(100%+6px)] z-30 w-[280px] rounded-2xl border border-line bg-surface p-1.5 shadow-pop",
+            alinear === "derecha" ? "right-0" : "left-0"
+          )}
         >
           {OTROS.map((o) => (
             <Link

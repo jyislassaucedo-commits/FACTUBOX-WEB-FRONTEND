@@ -2,7 +2,7 @@
    Estructura de navegación de Facturas.
    ---------------------------------------------------------------------------
    Espejo de emisorNav.ts, y por el mismo motivo: fuente única para el lateral
-   (FacturasNav) y para el botón dividido de "Nueva". Agregar una sección =
+   (el menú "Facturas" de la barra) y para el botón dividido de "Nueva". Agregar una sección =
    agregar una entrada aquí + su page.tsx.
 
    Facturas es todo lo que se EMITE. Antes estaba repartido: las facturas aquí,
@@ -77,3 +77,20 @@ export function seccionActiva(pathname: string): FacturasSectionKey | null {
   const encontrada = FACTURAS_SECTIONS.find((s) => s.segment === resto);
   return encontrada?.key ?? null;
 }
+
+/**
+ * Lo que se puede emitir, para el menú "Facturas" de la barra y el botón
+ * dividido "Nueva". La primera es la principal: el 72 % de lo que se emite son
+ * facturas de ingreso, así que el botón lleva directo a ella.
+ */
+export const EMITIR = [
+  { href: "/facturas/nueva?tipo=I", label: "Factura", detalle: "Ingreso con conceptos e impuestos" },
+  { href: "/facturas/nueva?tipo=P", label: "Complemento de pago", detalle: "Cuando te pagan una PPD" },
+  { href: "/facturas/nueva?tipo=E", label: "Nota de crédito", detalle: "Devoluciones y descuentos" },
+  { href: "/facturas/nomina", label: "Recibo de nómina", detalle: "Se corre por periodo" },
+  {
+    href: "/facturas/nueva?tipo=I&modo=plantilla",
+    label: "Subir plantilla de Excel",
+    detalle: "Muchas de golpe",
+  },
+] as const;
