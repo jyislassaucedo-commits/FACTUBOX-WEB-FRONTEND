@@ -190,7 +190,9 @@ export function PasoEmisor({
 
   const resumen = [
     borrador.fechaActual ? "Fecha de hoy" : borrador.fechaEmision.replace("T", " "),
-    borrador.moneda + (borrador.moneda !== "MXN" && borrador.tipoCambio ? ` a ${borrador.tipoCambio}` : ""),
+    borrador.tipo === "T"
+      ? "Sin moneda (traslado)"
+      : borrador.moneda + (borrador.moneda !== "MXN" && borrador.tipoCambio ? ` a ${borrador.tipoCambio}` : ""),
     EXPORTACIONES.find((e) => e.value === borrador.exportacion)?.label ?? borrador.exportacion,
   ].join(" · ");
 
@@ -265,7 +267,7 @@ export function PasoEmisor({
 
       {borrador.tipo !== "P" && (
         <Plegable
-          titulo="Fecha, moneda y exportación"
+          titulo={borrador.tipo === "T" ? "Fecha y exportación" : "Fecha, moneda y exportación"}
           resumen={resumen}
           abierto={abierto || (mostrarErrores && conError)}
           onAlternar={() => setAbierto((v) => !v)}
@@ -304,6 +306,7 @@ export function PasoEmisor({
               </Select>
             </Field>
 
+            {borrador.tipo !== "T" && (
             <Field label="Moneda">
               <Select
                 value={borrador.moneda}
@@ -316,8 +319,9 @@ export function PasoEmisor({
                 ))}
               </Select>
             </Field>
+            )}
 
-            {borrador.moneda !== "MXN" && (
+            {borrador.tipo !== "T" && borrador.moneda !== "MXN" && (
               <Field label="Tipo de cambio" hint="Pesos por cada unidad de la moneda.">
                 <Input
                   inputMode="decimal"

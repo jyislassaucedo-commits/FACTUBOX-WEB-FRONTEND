@@ -33,7 +33,7 @@ export default async function NuevaFacturaPage({
 
   // La URL la escribe cualquiera: se acepta solo lo que el asistente entiende
   // y lo demás se ignora, que es como si hubiera entrado sin atajo.
-  const tipoInicial = tipo === "I" || tipo === "E" || tipo === "P" ? tipo : undefined;
+  const tipoInicial = tipo === "I" || tipo === "E" || tipo === "P" || tipo === "T" ? tipo : undefined;
   const modoInicial = modo === "plantilla" ? ("plantilla" as const) : undefined;
 
   // Aquí —y SOLO aquí— se ocultan los emisores desactivados. El listado de

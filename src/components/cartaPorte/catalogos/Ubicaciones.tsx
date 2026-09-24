@@ -36,7 +36,7 @@ export function UbicacionesSection({ rfc, inicial }: { rfc: string; inicial: Pag
   );
 }
 
-function UbicacionForm({ rfc, inicial, onCerrar, onGuardado }: FormularioCPProps<UbicacionCP>) {
+export function UbicacionForm({ rfc, inicial, onCerrar, onGuardado }: FormularioCPProps<UbicacionCP>) {
   const [u, setU] = useState<UbicacionCP>(() => (inicial ? { ...inicial } : ubicacionVacia()));
   const [intentado, setIntentado] = useState(false);
   const [error, setError] = useState<string | null>(null);

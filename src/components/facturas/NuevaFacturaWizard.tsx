@@ -39,6 +39,16 @@ import {
   type FilaResumen,
 } from "./nueva/Pasos";
 import { IconoTipo, MenuTipos } from "./nueva/MenuTipos";
+import {
+  PasoCpFiguras,
+  PasoCpGeneral,
+  PasoCpMercancias,
+  PasoCpTransporte,
+  PasoCpUbicaciones,
+} from "./nueva/cartaPorte/PasosCartaPorte";
+import { conceptosTraslado, nodoCartaPorte } from "@/lib/cartaPorte/construirJson";
+import { claveLocal, totalesCartaPorte } from "@/lib/cartaPorte/borrador";
+import { nombreMedio } from "@/lib/cartaPorteShared";
 import { RielPasos, type EstadoPaso, type PasoRiel } from "./nueva/RielPasos";
 import { DocumentoPreview } from "./nueva/DocumentoPreview";
 import { ElegirModo } from "./ElegirModo";
@@ -75,12 +85,14 @@ const NOMBRE_TIPO: Record<TipoComprobante, string> = {
   I: "Factura",
   E: "Nota de crédito",
   P: "Complemento de pago",
+  T: "Carta porte de traslado",
 };
 
 const TIMBRADO_TIPO: Record<TipoComprobante, string> = {
   I: "Factura timbrada",
   E: "Nota de crédito timbrada",
   P: "Complemento de pago timbrado",
+  T: "Carta porte timbrada",
 };
 
 /**
@@ -186,6 +198,16 @@ export function NuevaFacturaWizard({
   const [revision, setRevision] = useState<ResultadoRevision | null>(null);
   const revisionEnVuelo = useRef<string | null>(null);
 
+  /* ---------- Prefactura en la nube ---------------------------------------
+     El comprobante se guarda en PREFACTURA al cambiar de paso (y con el botón
+     "Guardar"), como las prefacturas del escritorio: el mismo JSON del CFDI.
+     Se reconoce por uuidLocal; nunca van dos guardados a la vez y no se manda
+     si no cambió nada desde el último. */
+  const [uuidLocal, setUuidLocal] = useState(() => claveLocal());
+  const [nube, setNube] = useState<{ estado: "guardando" | "guardada" | "error"; hora?: string; mensaje?: string; id?: number } | null>(null);
+  const ultimaGuardada = useRef<string | null>(null);
+  const guardandoNube = useRef(false);
+
   function set(cambios: Partial<FacturaBorrador>) {
     setBorrador((prev) => ({ ...prev, ...cambios }));
   }
@@ -253,7 +275,8 @@ export function NuevaFacturaWizard({
   const receptorActual = useMemo(() => receptorDe(borrador, ctx), [borrador, ctx]);
   const emisorActual = emisores.find((e) => e.Rfc === borrador.rfcEmisor) ?? null;
 
-  const pasos = pasosPara(borrador.tipo);
+  const conCartaPorte = borrador.cartaPorte !== null;
+  const pasos = pasosPara(borrador.tipo, conCartaPorte);
   const indiceActual = Math.max(0, pasos.findIndex((p) => p.id === pasoActual));
   const paso = pasos[indiceActual];
   const problemasPendientes = pasos.flatMap((p) => problemas[p.id]);
@@ -286,7 +309,32 @@ export function NuevaFacturaWizard({
       serie: b.serie,
       folio: b.folio,
       observaciones: b.observaciones.trim() || undefined,
+      cartaPorte: b.cartaPorte ? nodoCartaPorte(b.cartaPorte) : undefined,
     };
+
+    if (b.tipo === "T") {
+      if (!b.cartaPorte) return null;
+      return [
+        {
+          clave: emisorActual.Rfc,
+          etiqueta: emisorActual.Nombre,
+          cuerpo: {
+            ...comun,
+            formaPago: "",
+            metodoPago: "",
+            receptorRfc: emisorActual.Rfc,
+            receptorNombre: emisorActual.Nombre,
+            receptorRegimenFiscal: emisorActual.Regimen,
+            receptorDomicilioFiscal: emisorActual.LugarExp,
+            receptorUsoCfdi: "S01",
+            conceptos: [],
+            conceptosTraslado: conceptosTraslado(b.cartaPorte),
+            fecha: !b.fechaActual && b.fechaEmision ? conSegundos(b.fechaEmision) : undefined,
+            exportacion: b.exportacion,
+          },
+        },
+      ];
+    }
 
     if (b.tipo === "P") {
       const comps = complementosPorReceptor(b.captura);
@@ -387,6 +435,44 @@ export function NuevaFacturaWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tocaRevisar, claveComprobante, revision]);
 
+  /** Más de esto y el guardado automático se apaga: serían megas en cada paso. */
+  const MERCANCIAS_AUTOGUARDADO = 500;
+
+  async function guardarNube(manual = false) {
+    if (borrador.tipo === "P") return; // el complemento de pago tiene su propio flujo
+    const cuerpos = construirCuerpos();
+    if (!cuerpos || cuerpos.length === 0) {
+      if (manual) toast("Para guardar hace falta el emisor y el receptor", "danger");
+      return;
+    }
+    if (!manual && (borrador.cartaPorte?.mercancias.length ?? 0) > MERCANCIAS_AUTOGUARDADO) return;
+    const clave = JSON.stringify(cuerpos[0].cuerpo);
+    if (!manual && clave === ultimaGuardada.current) return;
+    if (guardandoNube.current) return;
+    guardandoNube.current = true;
+    setNube((prev) => ({ ...prev, estado: "guardando" }));
+    try {
+      const res = await fetch("/api/prefacturas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rfcEmisor: borrador.rfcEmisor, uuidLocal, cuerpo: cuerpos[0].cuerpo }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setNube((prev) => ({ ...prev, estado: "error", mensaje: body.error ?? "No se pudo guardar" }));
+        if (manual) toast(body.error ?? "No se pudo guardar en la nube", "danger");
+        return;
+      }
+      ultimaGuardada.current = clave;
+      setNube({ estado: "guardada", id: body.id, hora: new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }) });
+      if (manual) toast("Guardada en la nube");
+    } catch {
+      setNube((prev) => ({ ...prev, estado: "error", mensaje: "No se pudo conectar con el servidor" }));
+    } finally {
+      guardandoNube.current = false;
+    }
+  }
+
   function reintentarRevision() {
     revisionEnVuelo.current = null;
     setRevision(null);
@@ -472,6 +558,36 @@ export function NuevaFacturaWizard({
             .join(" · "),
         };
       }
+      case "cpGeneral": {
+        const cp = b.cartaPorte;
+        if (!cp) return { valor: "" };
+        return {
+          valor: nombreMedio(cp.medio),
+          detalle: [cp.transpInternac === "Sí" ? `internacional, ${cp.entradaSalidaMerc.toLowerCase() || "sin sentido"}` : "nacional", `peso en ${cp.unidadPeso}`].join(" · "),
+        };
+      }
+      case "cpTransporte":
+        return { valor: b.cartaPorte?.transporte?.alias || "Sin transporte" };
+      case "cpFiguras": {
+        const f = b.cartaPorte?.figuras ?? [];
+        return { valor: f.length ? f.map((x) => x.nombre).join(", ") : "Sin figuras" };
+      }
+      case "cpUbicaciones": {
+        const cp = b.cartaPorte;
+        const u = cp?.ubicaciones ?? [];
+        if (!cp || u.length === 0) return { valor: "Sin ubicaciones" };
+        const km = totalesCartaPorte(cp).distancia;
+        return { valor: u.map((x) => x.nombreremdest).join(" → "), detalle: km > 0 ? `${km.toLocaleString("es-MX")} km` : undefined };
+      }
+      case "cpMercancias": {
+        const cp = b.cartaPorte;
+        if (!cp || cp.mercancias.length === 0) return { valor: "Sin mercancías" };
+        const t = totalesCartaPorte(cp);
+        return {
+          valor: `${t.numMercancias.toLocaleString("es-MX")} mercancía${t.numMercancias === 1 ? "" : "s"}`,
+          detalle: `${t.pesoBruto.toLocaleString("es-MX", { maximumFractionDigits: 3 })} ${cp.unidadPeso}`,
+        };
+      }
       default:
         return { valor: "" };
     }
@@ -506,6 +622,7 @@ export function NuevaFacturaWizard({
       return;
     }
     setVisitados((prev) => (prev.includes(pasoActual) ? prev : [...prev, pasoActual]));
+    void guardarNube();
     setPasoActual(id);
     setDocAbierto(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -529,8 +646,15 @@ export function NuevaFacturaWizard({
     irA(pasos[indiceActual - 1].id);
   }
 
-  function empezar(tipo: TipoComprobante) {
-    setBorrador((prev) => borradorPara(tipo, { rfcEmisor: prev.rfcEmisor }));
+  function nuevaPrefactura() {
+    setUuidLocal(claveLocal());
+    setNube(null);
+    ultimaGuardada.current = null;
+  }
+
+  function empezar(tipo: TipoComprobante, cartaPorte = false) {
+    nuevaPrefactura();
+    setBorrador((prev) => borradorPara(tipo, { rfcEmisor: prev.rfcEmisor }, cartaPorte));
     setModo("una");
     setEnMenu(false);
     setPasoActual("emisor");
@@ -622,6 +746,8 @@ export function NuevaFacturaWizard({
       return;
     }
     setEmitidos(lista);
+    // Ya timbrada, la prefactura sobra (el escritorio hace lo mismo).
+    if (nube?.id) void fetch(`/api/prefacturas/${nube.id}?rfc=${encodeURIComponent(borrador.rfcEmisor)}`, { method: "DELETE" });
     toast(
       bien === lista.length
         ? lista.length > 1
@@ -633,13 +759,14 @@ export function NuevaFacturaWizard({
   }
 
   function otroComprobante() {
+    nuevaPrefactura();
     setEmitidos(null);
     setErrorEnvio(null);
     setVisitados([]);
     setIntentados([]);
     setPasoActual("emisor");
     setEditorPago(null);
-    setBorrador((prev) => borradorPara(prev.tipo, { rfcEmisor: prev.rfcEmisor }));
+    setBorrador((prev) => borradorPara(prev.tipo, { rfcEmisor: prev.rfcEmisor }, prev.cartaPorte !== null));
     setEnMenu(true);
   }
 
@@ -750,7 +877,7 @@ export function NuevaFacturaWizard({
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_380px]">
       <RielPasos
-        tipo={NOMBRE_TIPO[borrador.tipo]}
+        tipo={borrador.tipo === "I" && conCartaPorte ? "Factura con carta porte" : NOMBRE_TIPO[borrador.tipo]}
         folio={borrador.serie && borrador.folio ? `${borrador.serie}-${borrador.folio}` : "Sin folio todavía"}
         icono={<IconoTipo tipo={borrador.tipo} />}
         pasos={pasosRiel}
@@ -790,6 +917,11 @@ export function NuevaFacturaWizard({
             )}
             {pasoActual === "complementos" && <PasoComplementos {...comun} />}
             {pasoActual === "pagos" && <PasoPagos {...comun} editor={editorPago} onEditor={setEditorPago} />}
+            {conCartaPorte && pasoActual === "cpGeneral" && <PasoCpGeneral {...comun} />}
+            {conCartaPorte && pasoActual === "cpTransporte" && <PasoCpTransporte {...comun} />}
+            {conCartaPorte && pasoActual === "cpFiguras" && <PasoCpFiguras {...comun} />}
+            {conCartaPorte && pasoActual === "cpUbicaciones" && <PasoCpUbicaciones {...comun} />}
+            {conCartaPorte && pasoActual === "cpMercancias" && <PasoCpMercancias {...comun} />}
             {esRevision && borrador.tipo === "P" && (
               <RevisionComplementos
                 borrador={borrador}
@@ -850,9 +982,25 @@ export function NuevaFacturaWizard({
         {/* ---------- Navegación ----------
             Mientras se arma un pago, el editor trae sus propios botones. */}
         <div hidden={editorPago !== null && pasoActual === "pagos"} className="sticky bottom-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface/90 px-4 py-3 shadow-raised backdrop-blur">
-          <Button variant="ghost" onClick={atras}>
-            {indiceActual === 0 ? "Cambiar tipo" : "Atrás"}
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" onClick={atras}>
+              {indiceActual === 0 ? "Cambiar tipo" : "Atrás"}
+            </Button>
+            {borrador.tipo !== "P" && (
+              <span className="flex items-center gap-2 text-[12px] text-ink-3">
+                {nube?.estado === "guardando"
+                  ? "Guardando en la nube…"
+                  : nube?.estado === "error"
+                    ? <span className="text-warn" title={nube.mensaje}>No se guardó en la nube</span>
+                    : nube?.hora
+                      ? `Guardada en la nube ${nube.hora}`
+                      : "Sin guardar"}
+                <Button size="sm" variant="ghost" onClick={() => void guardarNube(true)} disabled={nube?.estado === "guardando"}>
+                  Guardar
+                </Button>
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             {intentados.includes(pasoActual) && problemasPaso.length > 0 && (
               <span className="text-[12px] font-medium text-warn">

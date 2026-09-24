@@ -36,7 +36,7 @@ export type ConceptoInput = {
 };
 
 /** Tipos de comprobante que esta pantalla sabe armar hoy. */
-export type TipoComprobante = "I" | "E" | "P";
+export type TipoComprobante = "I" | "E" | "P" | "T";
 
 /**
  * Documento(s) que este CFDI relaciona. Para una nota de crédito (Egreso) el
@@ -126,6 +126,13 @@ export type NuevaFacturaInput = {
   complementos?: ComplementosBorrador;
   /** Texto libre del usuario; va en la addenda SistemaLocal. */
   observaciones?: string;
+  /**
+   * Nodo Complemento.CartaPorte ya armado (lib/cartaPorte/construirJson), con
+   * los nombres del SAT. En un traslado (T) es obligatorio.
+   */
+  cartaPorte?: Record<string, unknown>;
+  /** Solo traslado: los conceptos en ceros que salen de las mercancías. */
+  conceptosTraslado?: Record<string, unknown>[];
   /**
    * La addenda ya armada. La llena el SERVIDOR (ver completarAddenda) con el
    * usuario de la sesión: nunca se toma la que venga del cliente.
@@ -403,6 +410,7 @@ export function buildDatosJSON(input: NuevaFacturaInput) {
     const pagos = input.pagos ?? (input.pago ? [input.pago] : []);
     if (pagos.length > 0) return buildDatosJSONPago(input, pagos);
   }
+  if (input.tipoDeComprobante === "T") return buildDatosJSONTraslado(input);
 
   const ahora = new Date();
   const fechaISO = input.fecha || fechaLocalMexico(ahora);
@@ -626,18 +634,88 @@ export function buildDatosJSON(input: NuevaFacturaInput) {
     },
     Conceptos: { Concepto: conceptosJSON },
     Impuestos: impuestosGlobal,
-    ...(deComprobante.length > 0
+    ...(deComprobante.length > 0 || input.cartaPorte
       ? {
-          Complemento: Object.fromEntries(
-            deComprobante.map((def) => [
-              def.nodo,
-              def.aJson(input.complementos![def.id], { subtotal: round2(subTotal) }),
-            ])
+          Complemento: conCartaPorte(
+            Object.fromEntries(
+              deComprobante.map((def) => [
+                def.nodo,
+                def.aJson(input.complementos![def.id], { subtotal: round2(subTotal) }),
+              ])
+            ),
+            input.cartaPorte
           ),
         }
       : {}),
     // Las observaciones van como en el escritorio: <cfdi:SistemaLocal> dentro
     // de la Addenda. No las revisa el SAT ni entran al sello.
+    ...(input.addenda
+      ? {
+          Addenda: {
+            SistemaLocal: {
+              UsuarioDeSistema: input.addenda.usuario,
+              Fecha: input.addenda.fecha,
+              Hora: input.addenda.hora,
+              Observaciones: input.addenda.observaciones,
+            },
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * Mete CartaPorte en el nodo Complemento en el lugar del escritorio
+ * (ComplementoClass): después de los demás y antes de LeyendasFiscales.
+ */
+function conCartaPorte(complementos: Record<string, unknown>, cartaPorte?: Record<string, unknown>) {
+  if (!cartaPorte) return complementos;
+  const { LeyendasFiscales, ...resto } = complementos;
+  return { ...resto, CartaPorte: cartaPorte, ...(LeyendasFiscales ? { LeyendasFiscales } : {}) };
+}
+
+/**
+ * Un traslado con carta porte, como lo arma el escritorio (JsonGenerator.vb):
+ * SubTotal y Total "0", sin forma ni método de pago ni tipo de cambio, sin
+ * impuestos, el receptor es el propio emisor con uso S01 y los conceptos
+ * salen de las mercancías en ceros.
+ */
+function buildDatosJSONTraslado(input: NuevaFacturaInput) {
+  const fechaISO = input.fecha || fechaLocalMexico(new Date());
+  return {
+    Version: "4.0",
+    Serie: input.serie,
+    Folio: input.folio,
+    Fecha: fechaISO,
+    Sello: "",
+    NoCertificado: "",
+    Certificado: "",
+    SubTotal: "0",
+    Moneda: "XXX",
+    Total: "0",
+    TipoDeComprobante: "T",
+    Exportacion: input.exportacion || "01",
+    LugarExpedicion: input.lugarExpedicion,
+    ...(input.cfdiRelacionados && input.cfdiRelacionados.uuids.length > 0
+      ? {
+          CfdiRelacionados: [
+            {
+              TipoRelacion: input.cfdiRelacionados.tipoRelacion,
+              CfdiRelacionado: input.cfdiRelacionados.uuids.map((uuid) => ({ UUID: uuid })),
+            },
+          ],
+        }
+      : {}),
+    Emisor: { Rfc: input.rfcEmisor, Nombre: input.nombreEmisor, RegimenFiscal: input.regimenEmisor },
+    Receptor: {
+      Rfc: input.rfcEmisor,
+      Nombre: input.nombreEmisor,
+      DomicilioFiscalReceptor: input.lugarExpedicion,
+      RegimenFiscalReceptor: input.regimenEmisor,
+      UsoCFDI: "S01",
+    },
+    Conceptos: { Concepto: input.conceptosTraslado ?? [] },
+    Complemento: conCartaPorte({}, input.cartaPorte),
     ...(input.addenda
       ? {
           Addenda: {

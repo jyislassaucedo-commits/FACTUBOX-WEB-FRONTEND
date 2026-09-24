@@ -26,6 +26,8 @@ import {
   totalesLocales,
   type ComplementosBorrador,
 } from "@/lib/complementos";
+import { cartaPorteNueva, type CartaPorteBorrador } from "@/lib/cartaPorte/borrador";
+import { problemasCartaPorte, SIN_PROBLEMAS_CP } from "@/lib/cartaPorte/validar";
 
 export const RFC_PUBLICO_GENERAL = RECEPTOR_PUBLICO_GENERAL.Rfc;
 
@@ -98,9 +100,8 @@ export const TIPOS_COMPROBANTE: OpcionTipo[] = [
     value: "T",
     label: "Traslado",
     resumen: "Movimiento de mercancía",
-    detalle: "Mueves mercancía sin que haya venta. Suele llevar carta porte.",
-    disponible: false,
-    motivo: "Necesita carta porte, que aún no está en esta pantalla.",
+    detalle: "Mueves mercancía sin que haya venta. Lleva carta porte.",
+    disponible: true,
   },
 ];
 
@@ -209,6 +210,11 @@ export type FacturaBorrador = {
   captura: CapturaPagos;
   /** Con pagos de varios receptores, el usuario confirmó que se timbran varios complementos. */
   confirmaVarios: boolean;
+  /**
+   * Carta porte 3.1: siempre en un traslado (T); en una factura (I) solo si se
+   * eligió "Factura con carta porte". null = no lleva.
+   */
+  cartaPorte: CartaPorteBorrador | null;
 };
 
 export const CONCEPTO_VACIO: ConceptoInput = {
@@ -244,14 +250,24 @@ export const BORRADOR_INICIAL: FacturaBorrador = {
   observaciones: "",
   captura: CAPTURA_VACIA,
   confirmaVarios: false,
+  cartaPorte: null,
 };
 
 /**
  * Borrador nuevo para un tipo de comprobante, con lo que depende de hoy (mes
  * y año de la información global) y del tipo (relación y uso del CFDI).
  */
-export function borradorPara(tipo: TipoComprobante, base: Partial<FacturaBorrador> = {}): FacturaBorrador {
+export function borradorPara(
+  tipo: TipoComprobante,
+  base: Partial<FacturaBorrador> = {},
+  conCartaPorte = false
+): FacturaBorrador {
   const hoy = new Date();
+  // Un traslado no cobra: moneda XXX, sin forma ni método de pago, uso S01, y
+  // el receptor es el propio emisor (ver receptorDe). Los conceptos salen de
+  // las mercancías al armar el comprobante.
+  const traslado: Partial<FacturaBorrador> =
+    tipo === "T" ? { moneda: "XXX", formaPago: "", metodoPago: "", usoCfdi: "S01", receptorRfc: "", conceptos: [] } : {};
   return {
     ...BORRADOR_INICIAL,
     conceptos: [{ ...CONCEPTO_VACIO }],
@@ -265,6 +281,8 @@ export function borradorPara(tipo: TipoComprobante, base: Partial<FacturaBorrado
     tipo,
     relacion: { tipoRelacion: tipo === "E" ? "01" : "04", uuids: [] },
     usoCfdi: tipo === "E" ? "G02" : BORRADOR_INICIAL.usoCfdi,
+    ...traslado,
+    cartaPorte: tipo === "T" || (tipo === "I" && conCartaPorte) ? cartaPorteNueva() : null,
   };
 }
 
@@ -304,6 +322,11 @@ export type PasoId =
   | "relacion"
   | "complementos"
   | "pagos"
+  | "cpGeneral"
+  | "cpTransporte"
+  | "cpFiguras"
+  | "cpUbicaciones"
+  | "cpMercancias"
   | "revision";
 
 export type Paso = {
@@ -328,6 +351,40 @@ const REVISION: Paso = {
   pregunta: "Revisa y timbra",
   porque: "Así se va a timbrar. Cualquier dato lo puedes cambiar desde aquí.",
 };
+
+/** Los pasos de la carta porte, en el orden del escritorio (transporte, figuras, ubicaciones, mercancías). */
+const PASOS_CARTA_PORTE: Paso[] = [
+  {
+    id: "cpGeneral",
+    titulo: "Datos del traslado",
+    pregunta: "¿Cómo es el traslado?",
+    porque: "El medio de transporte, si cruza la frontera y en qué unidad se pesa la mercancía.",
+  },
+  {
+    id: "cpTransporte",
+    titulo: "Transporte",
+    pregunta: "¿En qué se mueve la mercancía?",
+    porque: "Elige una unidad de tus transportes guardados, con su permiso y su seguro.",
+  },
+  {
+    id: "cpFiguras",
+    titulo: "Figuras de transporte",
+    pregunta: "¿Quién maneja y de quién es la unidad?",
+    porque: "El operador, y el propietario o arrendador si la unidad no es tuya.",
+  },
+  {
+    id: "cpUbicaciones",
+    titulo: "Ubicaciones",
+    pregunta: "¿De dónde sale y a dónde llega?",
+    porque: "El origen y cada destino, con su fecha y la distancia de cada tramo.",
+  },
+  {
+    id: "cpMercancias",
+    titulo: "Mercancías",
+    pregunta: "¿Qué llevas?",
+    porque: "Cada mercancía con su cantidad y peso. El peso total y los totales se calculan solos.",
+  },
+];
 
 export const PASOS_POR_TIPO: Record<TipoComprobante, Paso[]> = {
   I: [
@@ -409,10 +466,28 @@ export const PASOS_POR_TIPO: Record<TipoComprobante, Paso[]> = {
     },
     REVISION,
   ],
+  T: [
+    EMISOR,
+    ...PASOS_CARTA_PORTE,
+    {
+      id: "relacion",
+      titulo: "CFDI relacionados",
+      pregunta: "¿Este traslado se relaciona con otro CFDI?",
+      porque: "Por ejemplo, si sustituye a una carta porte cancelada. Si no, sigue adelante.",
+    },
+    REVISION,
+  ],
 };
 
-export function pasosPara(tipo: TipoComprobante): Paso[] {
-  return PASOS_POR_TIPO[tipo];
+/**
+ * Los pasos de un comprobante. La factura con carta porte es la factura de
+ * siempre con los pasos de la carta porte después de la forma de pago.
+ */
+export function pasosPara(tipo: TipoComprobante, conCartaPorte = false): Paso[] {
+  const pasos = PASOS_POR_TIPO[tipo];
+  if (tipo !== "I" || !conCartaPorte) return pasos;
+  const i = pasos.findIndex((p) => p.id === "pago");
+  return [...pasos.slice(0, i + 1), ...PASOS_CARTA_PORTE, ...pasos.slice(i + 1)];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -532,6 +607,7 @@ export function validar(
   const emisor = ctx.emisores.find((e) => e.Rfc === borrador.rfcEmisor) ?? null;
   const receptor = receptorDe(borrador, ctx);
   const esPago = borrador.tipo === "P";
+  const esTraslado = borrador.tipo === "T";
 
   /* ---------- Emisor y serie (y fecha, moneda, exportación) ---------- */
   const emisorP: Problema[] = [];
@@ -562,7 +638,7 @@ export function validar(
       const error = problemaDeFecha(borrador.fechaEmision);
       if (error) emisorP.push({ campo: "fechaEmision", mensaje: error });
     }
-    if (borrador.moneda !== "MXN" && !(parseFloat(borrador.tipoCambio) > 0)) {
+    if (!esTraslado && borrador.moneda !== "MXN" && !(parseFloat(borrador.tipoCambio) > 0)) {
       emisorP.push({
         campo: "tipoCambio",
         mensaje: `Con ${borrador.moneda} hace falta el tipo de cambio.`,
@@ -605,7 +681,7 @@ export function validar(
   // El receptor de un CFDI de Pago no se elige: es el mismo de la factura
   // que se está pagando (ver receptorDe).
   const receptorP: Problema[] = [];
-  if (!esPago) {
+  if (!esPago && !esTraslado) {
     if (!borrador.receptorRfc) {
       receptorP.push({ campo: "receptorRfc", mensaje: "Elige a quién le facturas." });
     } else if (!receptor) {
@@ -649,13 +725,13 @@ export function validar(
   }
 
   /* ---------- Conceptos ---------- */
-  const conceptosP: Problema[] = esPago ? [] : problemasDeConceptos(borrador.conceptos);
+  const conceptosP: Problema[] = esPago || esTraslado ? [] : problemasDeConceptos(borrador.conceptos);
 
   /* ---------- Forma de pago ---------- */
   // Un CFDI de Pago no lleva FormaPago/MetodoPago a nivel comprobante (el SAT
   // los rechaza ahí): la forma real va dentro de cada Pago del complemento.
   const pagoP: Problema[] = [];
-  if (!esPago) {
+  if (!esPago && !esTraslado) {
     if (!borrador.metodoPago) {
       pagoP.push({ campo: "metodoPago", mensaje: "Elige cómo te van a pagar." });
     }
@@ -702,7 +778,10 @@ export function validar(
     });
   }
 
+  const cp = borrador.cartaPorte ? problemasCartaPorte(borrador.cartaPorte) : SIN_PROBLEMAS_CP;
+
   return {
+    ...cp,
     emisor: emisorP,
     origen: origenP,
     receptor: receptorP,
@@ -725,6 +804,11 @@ export function receptorDe(
     const r = complementosPorReceptor(borrador.captura)[0]?.receptor;
     if (!r) return null;
     return { Rfc: r.rfc, Nombre: r.nombre, RegimenFiscal: r.regimen, DomicilioFiscal: r.cp, UsoCfdi: "CP01" };
+  }
+  if (borrador.tipo === "T") {
+    // En un traslado la mercancía es del propio emisor: él es el receptor.
+    const e = ctx.emisores.find((x) => x.Rfc === borrador.rfcEmisor);
+    return e ? { Rfc: e.Rfc, Nombre: e.Nombre, RegimenFiscal: e.Regimen, DomicilioFiscal: e.LugarExp, UsoCfdi: "S01" } : null;
   }
   if (borrador.receptorRfc === RFC_PUBLICO_GENERAL) return RECEPTOR_GENERICO;
   return ctx.receptores.find((r) => r.Rfc === borrador.receptorRfc) ?? null;

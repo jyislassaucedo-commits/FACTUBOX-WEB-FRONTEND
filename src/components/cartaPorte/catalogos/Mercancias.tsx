@@ -37,7 +37,7 @@ export function MercanciasSection({ rfc, inicial }: { rfc: string; inicial: Pagi
 
 type ResultadoClaveCP = { id: string; texto: string; material_peligroso?: string };
 
-function MercanciaForm({ rfc, inicial, onCerrar, onGuardado }: FormularioCPProps<MercanciaCP>) {
+export function MercanciaForm({ rfc, inicial, onCerrar, onGuardado }: FormularioCPProps<MercanciaCP>) {
   const [m, setM] = useState<MercanciaCP>(() => (inicial ? { ...inicial } : mercanciaVacia()));
   const [textoClaveCP, setTextoClaveCP] = useState("");
   // "0" no puede ser peligrosa, "1" siempre, "0,1" depende. Al editar un

@@ -71,7 +71,7 @@ function clonar<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
-function TransportePanel({ rfc, inicial, onCerrar, onGuardado }: FormularioCPProps<TransporteCP>) {
+export function TransportePanel({ rfc, inicial, onCerrar, onGuardado }: FormularioCPProps<TransporteCP>) {
   const [t, setT] = useState<TransporteCP>(() =>
     inicial
       ? clonar(inicial)

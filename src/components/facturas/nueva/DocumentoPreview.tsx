@@ -19,6 +19,8 @@ import { activos } from "@/lib/complementos";
 import { cadena, complementosPorReceptor, folioDe, montoDe, ordenarPagos, totalEnPesos } from "@/lib/pagosCaptura";
 import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
+import { totalesCartaPorte, type CartaPorteBorrador } from "@/lib/cartaPorte/borrador";
+import { nombreMedio } from "@/lib/cartaPorteShared";
 
 /*
    El comprobante armándose a la derecha, con cada paso. Resalta la sección
@@ -30,6 +32,7 @@ const NOMBRE_TIPO: Record<string, string> = {
   I: "Factura",
   E: "Nota de crédito",
   P: "Complemento de pago",
+  T: "Traslado",
 };
 
 export function DocumentoPreview({
@@ -80,7 +83,7 @@ export function DocumentoPreview({
         <p className="font-semibold">{emisor?.Nombre ?? "—"}</p>
         <p className="text-ink-2">
           {emisor?.Rfc ?? "—"} · CP {emisor?.LugarExp ?? "—"}
-          {!esPago && ` · ${b.moneda}`}
+          {!esPago && b.tipo !== "T" && ` · ${b.moneda}`}
         </p>
       </Seccion>
 
@@ -105,6 +108,13 @@ export function DocumentoPreview({
         <SeccionPagos borrador={b} pasoActual={pasoActual} editando={editandoPago} titulo={titulos.pagos ?? "pagos"} />
       ) : (
         <>
+          {b.tipo === "T" ? (
+            <Seccion actual={pasoActual} pasos={[]} etiqueta="Receptor">
+              <p className="font-semibold">{receptor?.Nombre ?? "—"}</p>
+              <p className="text-ink-2">{receptor?.Rfc ?? "—"} · uso S01 · el propio emisor en un traslado</p>
+            </Seccion>
+          ) : (
+          <>
           <Seccion actual={pasoActual} pasos={["receptor"]} etiqueta="Receptor">
             {lleno("receptor") && receptor ? (
               <>
@@ -167,8 +177,12 @@ export function DocumentoPreview({
               <Hueco titulo={titulos.pago ?? "pago"} />
             )}
           </Seccion>
+          </>
+          )}
 
-          {b.tipo === "I" && (
+          {b.cartaPorte && <SeccionCartaPorte cp={b.cartaPorte} pasoActual={pasoActual} lleno={lleno} titulos={titulos} />}
+
+          {(b.tipo === "I" || b.tipo === "T") && (
             <>
               <Seccion actual={pasoActual} pasos={["relacion"]} etiqueta="CFDI relacionados">
                 {lleno("relacion") ? (
@@ -188,6 +202,7 @@ export function DocumentoPreview({
                   <Hueco titulo={titulos.relacion ?? "relacion"} />
                 )}
               </Seccion>
+              {b.tipo === "I" && (
               <Seccion actual={pasoActual} pasos={["complementos"]} etiqueta="Complementos">
                 {lleno("complementos") ? (
                   <p className="text-ink-2">
@@ -197,9 +212,15 @@ export function DocumentoPreview({
                   <Hueco titulo={titulos.complementos ?? "complementos"} />
                 )}
               </Seccion>
+              )}
             </>
           )}
 
+          {b.tipo === "T" ? (
+            <div className="grid justify-items-end gap-0.5 font-mono tabular-nums">
+              <Total etiqueta="Total" valor="0 · XXX (traslado)" grande />
+            </div>
+          ) : (
           <div className="grid justify-items-end gap-0.5 font-mono tabular-nums">
             <Total etiqueta="Subtotal" valor={lleno("conceptos") ? money(totales.subtotal, b.moneda) : "—"} />
             {totales.trasladados > 0 && lleno("conceptos") && (
@@ -216,6 +237,7 @@ export function DocumentoPreview({
             )}
             <Total etiqueta="Total" valor={lleno("conceptos") ? money(totales.total, b.moneda) : "—"} grande />
           </div>
+          )}
         </>
       )}
 
@@ -230,6 +252,64 @@ export function DocumentoPreview({
       <p className="border-t border-dashed border-line pt-2.5 text-[11px] text-ink-3">
         El sello, el folio fiscal y el timbre se agregan al timbrar.
       </p>
+    </div>
+  );
+}
+
+/** La carta porte armándose: medio, transporte, figuras, ruta y mercancías. */
+function SeccionCartaPorte({
+  cp,
+  pasoActual,
+  lleno,
+  titulos,
+}: {
+  cp: CartaPorteBorrador;
+  pasoActual: PasoId;
+  lleno: (p: PasoId) => boolean;
+  titulos: Partial<Record<PasoId, string>>;
+}) {
+  const t = totalesCartaPorte(cp);
+  return (
+    <div className="grid gap-1 rounded-lg border border-line p-2">
+      <div className="flex items-baseline justify-between gap-2 px-0.5">
+        <p className="text-[12px] font-bold">Carta porte 3.1 · {nombreMedio(cp.medio)}</p>
+        <p className="truncate font-mono text-[10.5px] text-ink-3" title={cp.idCCP}>
+          {cp.idCCP.slice(0, 13)}…
+        </p>
+      </div>
+      <Seccion actual={pasoActual} pasos={["cpTransporte"]} etiqueta="Transporte">
+        {cp.transporte ? <p>{cp.transporte.alias || "Transporte"}</p> : <Hueco titulo={titulos.cpTransporte ?? "transporte"} />}
+      </Seccion>
+      <Seccion actual={pasoActual} pasos={["cpFiguras"]} etiqueta="Figuras">
+        {cp.figuras.length > 0 ? (
+          cp.figuras.map((f) => (
+            <p key={`${f.tipofigura}${f.rfc}${f.nombre}`}>
+              {f.nombre} <span className="text-ink-3">· {f.tipofigura}</span>
+            </p>
+          ))
+        ) : (
+          <Hueco titulo={titulos.cpFiguras ?? "figuras"} />
+        )}
+      </Seccion>
+      <Seccion actual={pasoActual} pasos={["cpUbicaciones"]} etiqueta="Ruta">
+        {cp.ubicaciones.length > 0 ? (
+          <>
+            <p>{cp.ubicaciones.map((u) => u.nombreremdest).join(" → ")}</p>
+            {t.distancia > 0 && <p className="font-mono text-ink-2">{t.distancia.toLocaleString("es-MX")} km</p>}
+          </>
+        ) : (
+          <Hueco titulo={titulos.cpUbicaciones ?? "ubicaciones"} />
+        )}
+      </Seccion>
+      <Seccion actual={pasoActual} pasos={["cpMercancias"]} etiqueta="Mercancías">
+        {cp.mercancias.length > 0 || lleno("cpMercancias") ? (
+          <p className="font-mono">
+            {t.numMercancias.toLocaleString("es-MX")} · {t.pesoBruto.toLocaleString("es-MX", { maximumFractionDigits: 3 })} {cp.unidadPeso}
+          </p>
+        ) : (
+          <Hueco titulo={titulos.cpMercancias ?? "mercancías"} />
+        )}
+      </Seccion>
     </div>
   );
 }

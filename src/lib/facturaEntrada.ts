@@ -4,7 +4,7 @@ import { complementoDe, problemasDeComplementos } from "@/lib/complementos";
 import { EXPORTACIONES, OBSERVACIONES_MAX, PERIODICIDADES, mesesPara } from "@/lib/facturaNueva";
 
 /** Tipos de comprobante que la pantalla de nueva factura sabe armar hoy. */
-export const TIPOS_SOPORTADOS: TipoComprobante[] = ["I", "E", "P"];
+export const TIPOS_SOPORTADOS: TipoComprobante[] = ["I", "E", "P", "T"];
 
 export type CuerpoFactura = NuevaFacturaInput & { emisorToken: string };
 
@@ -23,7 +23,9 @@ export function revisarEntradaFactura(body: CuerpoFactura | null): string | null
   // Un CFDI de Pago no manda conceptos reales desde el cliente (el filler
   // "Pago" $0 lo arma buildDatosJSONPago del lado del servidor); en cambio
   // sí necesita el bloque `pago` con al menos un documento relacionado.
-  const requiereConceptos = body?.tipoDeComprobante !== "P";
+  // Un traslado tampoco: sus conceptos salen de las mercancías de la carta
+  // porte (conceptosTraslado).
+  const requiereConceptos = body?.tipoDeComprobante !== "P" && body?.tipoDeComprobante !== "T";
 
   if (
     !body?.emisorToken ||
@@ -49,6 +51,16 @@ export function revisarEntradaFactura(body: CuerpoFactura | null): string | null
   // deja al receptor sin forma de amarrarla con su factura original.
   if (tipo === "E" && !body.cfdiRelacionados?.uuids?.length) {
     return "Una nota de crédito debe relacionar al menos un CFDI";
+  }
+
+  if (tipo === "T") {
+    if (!body.cartaPorte) return "Un traslado lleva carta porte";
+    if (!body.conceptosTraslado?.length) return "La carta porte no tiene mercancías";
+  }
+  if (body.cartaPorte) {
+    const cp = body.cartaPorte as { Version?: unknown; Ubicaciones?: unknown; Mercancias?: unknown };
+    if (cp.Version !== "3.1" || !cp.Ubicaciones || !cp.Mercancias) return "La carta porte está incompleta";
+    if (tipo !== "T" && tipo !== "I") return "Solo la factura y el traslado llevan carta porte";
   }
 
   if (tipo === "P") {

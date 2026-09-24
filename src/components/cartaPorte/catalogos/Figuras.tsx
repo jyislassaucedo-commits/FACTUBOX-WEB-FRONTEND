@@ -47,7 +47,7 @@ export function FigurasSection({ rfc, inicial }: { rfc: string; inicial: PaginaC
   );
 }
 
-function FiguraForm({ rfc, inicial, onCerrar, onGuardado }: FormularioCPProps<FiguraCP>) {
+export function FiguraForm({ rfc, inicial, onCerrar, onGuardado }: FormularioCPProps<FiguraCP>) {
   const [f, setF] = useState<FiguraCP>(() => (inicial ? { ...inicial, partes: [...inicial.partes] } : figuraVacia()));
   const [intentado, setIntentado] = useState(false);
   const [error, setError] = useState<string | null>(null);

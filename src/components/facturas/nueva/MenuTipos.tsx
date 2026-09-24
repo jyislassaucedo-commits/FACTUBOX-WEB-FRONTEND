@@ -20,7 +20,7 @@ type Opcion = {
   icono: keyof typeof ICONOS;
   /** Qué hace al elegirla. */
   accion:
-    | { tipo: "comprobante"; valor: TipoComprobante }
+    | { tipo: "comprobante"; valor: TipoComprobante; cartaPorte?: boolean }
     | { tipo: "plantilla" }
     | { tipo: "enlace"; href: string }
     | { tipo: "proximamente"; motivo: string };
@@ -69,11 +69,19 @@ const OPCIONES: Opcion[] = [
   },
   {
     clave: "T",
-    nombre: "Traslado",
-    descripcion: "Ampara mercancía en tránsito, sin venta de por medio.",
+    nombre: "Traslado con carta porte",
+    descripcion: "Ampara mercancía propia en tránsito, sin venta de por medio.",
     ejemplo: "Mueves inventario a otra sucursal.",
     icono: "traslado",
-    accion: { tipo: "proximamente", motivo: "Necesita carta porte" },
+    accion: { tipo: "comprobante", valor: "T" },
+  },
+  {
+    clave: "ICP",
+    nombre: "Factura con carta porte",
+    descripcion: "Cobras el flete: la factura de ingreso lleva la carta porte del viaje.",
+    ejemplo: "Transportaste la carga de un cliente y le cobras el servicio.",
+    icono: "flete",
+    accion: { tipo: "comprobante", valor: "I", cartaPorte: true },
   },
 ];
 
@@ -115,6 +123,14 @@ const ICONOS = {
       <circle cx="14.5" cy="15" r="1.5" />
     </>
   ),
+  flete: (
+    <>
+      <path d="M2.5 5.5h9v8h-9zM11.5 8.5h3.5l2.5 2.5v2.5h-6" />
+      <circle cx="6" cy="15" r="1.5" />
+      <circle cx="14.5" cy="15" r="1.5" />
+      <path d="M5 9.5h3.5" />
+    </>
+  ),
 };
 
 const COLOR_ICONO: Record<keyof typeof ICONOS, string> = {
@@ -123,12 +139,13 @@ const COLOR_ICONO: Record<keyof typeof ICONOS, string> = {
   pago: "bg-teal-bg text-teal",
   nomina: "bg-info-bg text-info",
   excel: "bg-ok-bg text-ok",
-  traslado: "bg-line-2 text-ink-4",
+  traslado: "bg-teal-bg text-teal",
+  flete: "bg-warn-bg text-warn",
 };
 
 /** El ícono de un tipo de comprobante, el mismo del menú. */
 export function IconoTipo({ tipo, className }: { tipo: TipoComprobante; className?: string }) {
-  const icono = tipo === "E" ? "nota" : tipo === "P" ? "pago" : "factura";
+  const icono = tipo === "E" ? "nota" : tipo === "P" ? "pago" : tipo === "T" ? "traslado" : "factura";
   return (
     <span
       className={cx("grid size-9 flex-none place-items-center rounded-[10px]", COLOR_ICONO[icono], className)}
@@ -153,7 +170,7 @@ export function MenuTipos({
   onElegir,
   onPlantilla,
 }: {
-  onElegir: (tipo: TipoComprobante) => void;
+  onElegir: (tipo: TipoComprobante, cartaPorte?: boolean) => void;
   onPlantilla: () => void;
 }) {
   return (
@@ -180,13 +197,13 @@ function Tarjeta({
   onPlantilla,
 }: {
   opcion: Opcion;
-  onElegir: (tipo: TipoComprobante) => void;
+  onElegir: (tipo: TipoComprobante, cartaPorte?: boolean) => void;
   onPlantilla: () => void;
 }) {
   const apagada = o.accion.tipo === "proximamente";
   const pie =
     o.accion.tipo === "comprobante"
-      ? `${pasosPara(o.accion.valor).length} pasos`
+      ? `${pasosPara(o.accion.valor, o.accion.cartaPorte).length} pasos`
       : o.accion.tipo === "enlace"
         ? "Tiene su propia sección"
         : o.accion.tipo === "plantilla"
@@ -252,7 +269,7 @@ function Tarjeta({
       disabled={apagada}
       className={clases}
       onClick={() => {
-        if (accion.tipo === "comprobante") onElegir(accion.valor);
+        if (accion.tipo === "comprobante") onElegir(accion.valor, accion.cartaPorte);
         else if (accion.tipo === "plantilla") onPlantilla();
       }}
     >
