@@ -10,16 +10,16 @@
    y alimentar el indicador "en vivo" de cada paso.
 --------------------------------------------------------------------------- */
 
-import type {
-  ConceptoInput,
-  DoctoRelacionadoInput,
-  ImpuestoPagoInput,
-  TipoComprobante,
-} from "@/lib/timbrado";
+import type { ConceptoInput, TipoComprobante } from "@/lib/timbrado";
 import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
 import type { Serie } from "@/lib/series";
-import type { ImpuestoOrigen, PagoPrevio } from "@/lib/facturasShared";
+import {
+  CAPTURA_VACIA,
+  complementosPorReceptor,
+  problemasDePago,
+  type CapturaPagos,
+} from "@/lib/pagosCaptura";
 import { IMPUESTO_IVA, RECEPTOR_PUBLICO_GENERAL } from "@/lib/catalogosSat";
 import {
   problemasDeComplementos,
@@ -205,61 +205,10 @@ export type FacturaBorrador = {
   complementos: ComplementosBorrador;
   /** Van en la addenda SistemaLocal, como en el escritorio. No las revisa el SAT. */
   observaciones: string;
-  /** Solo para tipo "P". */
-  pago: PagoBorrador;
-};
-
-/** La factura PPD que se va a pagar, con lo que su complemento necesita
- * tomar prestado de ella (receptor e impuestos, para prorratear en pagos
- * parciales). */
-export type FacturaOrigenPago = {
-  uuid: string;
-  serie: string;
-  folio: string;
-  total: string;
-  moneda: string;
-  rfcReceptor: string;
-  nombreReceptor: string;
-  regimenFiscalReceptor: string;
-  domicilioFiscalReceptor: string;
-  traslados: ImpuestoOrigen[];
-  retenciones: ImpuestoOrigen[];
-};
-
-/** Lo que devolvió el backend al buscar pagos ya timbrados de esta factura. */
-export type PagoDetectado = {
-  saldoPendiente: string;
-  siguienteParcialidad: string;
-  pagosPrevios: PagoPrevio[];
-};
-
-export type PagoBorrador = {
-  facturaOrigen: FacturaOrigenPago | null;
-  /** "YYYY-MM-DDTHH:mm", como lo entrega un <input type="datetime-local">. */
-  fechaPago: string;
-  formaDePagoP: string;
-  monedaP: string;
-  tipoCambioP: string;
-  monto: string;
-  /** Saldo antes de este pago: se autocompleta con lo detectado, pero es editable. */
-  impSaldoAnt: string;
-  numParcialidad: string;
-  detectado: PagoDetectado | null;
-  /** Si el usuario quitó el pago detectado (prefiere capturar el saldo a mano). */
-  usarDetectado: boolean;
-};
-
-export const PAGO_VACIO: PagoBorrador = {
-  facturaOrigen: null,
-  fechaPago: "",
-  formaDePagoP: "03",
-  monedaP: "MXN",
-  tipoCambioP: "1",
-  monto: "",
-  impSaldoAnt: "",
-  numParcialidad: "1",
-  detectado: null,
-  usarDetectado: true,
+  /** Solo para tipo "P": los pagos que arma el usuario y sus facturas. */
+  captura: CapturaPagos;
+  /** Con pagos de varios receptores, el usuario confirmó que se timbran varios complementos. */
+  confirmaVarios: boolean;
 };
 
 export const CONCEPTO_VACIO: ConceptoInput = {
@@ -293,7 +242,8 @@ export const BORRADOR_INICIAL: FacturaBorrador = {
   conceptos: [{ ...CONCEPTO_VACIO }],
   complementos: {},
   observaciones: "",
-  pago: { ...PAGO_VACIO },
+  captura: CAPTURA_VACIA,
+  confirmaVarios: false,
 };
 
 /**
@@ -305,7 +255,7 @@ export function borradorPara(tipo: TipoComprobante, base: Partial<FacturaBorrado
   return {
     ...BORRADOR_INICIAL,
     conceptos: [{ ...CONCEPTO_VACIO }],
-    pago: { ...PAGO_VACIO },
+    captura: { pagos: [], facturas: {}, decisiones: {} },
     global: {
       periodicidad: "04",
       meses: String(hoy.getMonth() + 1).padStart(2, "0"),
@@ -443,15 +393,19 @@ export const PASOS_POR_TIPO: Record<TipoComprobante, Paso[]> = {
     },
     REVISION,
   ],
-  // El complemento de pago se rediseña aparte; mientras, sus pantallas de
-  // siempre entran al riel tal cual.
   P: [
     EMISOR,
     {
       id: "pagos",
-      titulo: "Pago",
-      pregunta: "¿Qué factura te pagaron y cuánto?",
-      porque: "Solo aparecen facturas a crédito (PPD) que todavía tienen saldo.",
+      titulo: "Pagos",
+      pregunta: "¿Qué pagos recibiste?",
+      porque: "Agrega cada pago que te hicieron y elige qué facturas cubre. Tú decides cómo se arma cada uno.",
+    },
+    {
+      id: "relacion",
+      titulo: "CFDI relacionados",
+      pregunta: "¿Sustituye a un complemento cancelado?",
+      porque: "Casi nunca. Si no, sigue adelante.",
     },
     REVISION,
   ],
@@ -632,13 +586,13 @@ export function validar(
 
   /* ---------- CFDI relacionados (factura) ---------- */
   const relacionP: Problema[] = [];
-  if (borrador.tipo === "I" && borrador.relacionar && borrador.relacion.uuids.length === 0) {
+  if (borrador.tipo !== "E" && borrador.relacionar && borrador.relacion.uuids.length === 0) {
     relacionP.push({
       campo: "relacion",
       mensaje: "Elige al menos una factura relacionada o cambia a “No se relaciona”.",
     });
   }
-  const relaciona = borrador.tipo === "E" || (borrador.tipo === "I" && borrador.relacionar);
+  const relaciona = borrador.tipo === "E" || borrador.relacionar;
   const invalidos = relaciona ? borrador.relacion.uuids.filter((u) => !esUuid(u)) : [];
   if (invalidos.length > 0) {
     (borrador.tipo === "E" ? origenP : relacionP).push({
@@ -721,45 +675,26 @@ export function validar(
   /* ---------- Complemento de pago ---------- */
   const pagosP: Problema[] = [];
   if (esPago) {
-    const p = borrador.pago;
-    if (!p.facturaOrigen) {
-      pagosP.push({ campo: "facturaOrigen", mensaje: "Elige qué factura se va a pagar." });
+    const c = borrador.captura;
+    if (c.pagos.length === 0) {
+      pagosP.push({ campo: "pagos", mensaje: "Agrega al menos un pago." });
     }
-    if (!p.fechaPago) {
-      pagosP.push({ campo: "fechaPago", mensaje: "Captura la fecha en que se recibió el pago." });
-    }
-    if (!p.formaDePagoP) {
-      pagosP.push({ campo: "formaDePagoP", mensaje: "Elige la forma en que se recibió el pago." });
-    }
-    if (!p.monedaP) {
-      pagosP.push({ campo: "monedaP", mensaje: "Elige la moneda del pago." });
-    } else if (p.monedaP !== "MXN" && !(parseFloat(p.tipoCambioP) > 0)) {
-      pagosP.push({ campo: "tipoCambioP", mensaje: "Captura el tipo de cambio de esa moneda." });
-    }
-
-    const monto = parseFloat(p.monto);
-    if (!(monto > 0)) {
-      pagosP.push({ campo: "monto", mensaje: "El monto pagado debe ser mayor a 0." });
-    }
-
-    if (p.facturaOrigen) {
-      const saldoAnt = parseFloat(p.impSaldoAnt);
-      if (!(saldoAnt > 0)) {
-        pagosP.push({
-          campo: "impSaldoAnt",
-          mensaje: "No se pudo calcular el saldo pendiente de esa factura.",
-        });
-      } else if (monto > 0 && monto > saldoAnt + 0.01) {
-        pagosP.push({
-          campo: "monto",
-          mensaje: `El monto no puede ser mayor al saldo pendiente (${saldoAnt.toFixed(2)}).`,
-        });
+    c.pagos.forEach((p, i) => {
+      const nombre = `Pago del ${p.fecha.split("-").reverse().join("/")}`;
+      for (const mensaje of problemasDePago(c, p).errores) {
+        pagosP.push({ campo: `pago.${i}`, mensaje: `${nombre}: ${mensaje}` });
       }
-    }
+    });
   }
 
   /* ---------- Revisión: solo las observaciones son suyas ---------- */
   const revisionP: Problema[] = [];
+  if (esPago && complementosPorReceptor(borrador.captura).length > 1 && !borrador.confirmaVarios) {
+    revisionP.push({
+      campo: "confirmaVarios",
+      mensaje: `Confirma que vas a timbrar ${complementosPorReceptor(borrador.captura).length} complementos, uno por receptor.`,
+    });
+  }
   if (borrador.observaciones.length > OBSERVACIONES_MAX) {
     revisionP.push({
       campo: "observaciones",
@@ -785,15 +720,11 @@ export function receptorDe(
   ctx: Contexto
 ): Receptor | null {
   if (borrador.tipo === "P") {
-    const fo = borrador.pago.facturaOrigen;
-    if (!fo) return null;
-    return {
-      Rfc: fo.rfcReceptor,
-      Nombre: fo.nombreReceptor,
-      RegimenFiscal: fo.regimenFiscalReceptor,
-      DomicilioFiscal: fo.domicilioFiscalReceptor,
-      UsoCfdi: "CP01",
-    };
+    // El receptor sale de las facturas del primer complemento; con varios
+    // receptores, cada complemento lleva el suyo al timbrar.
+    const r = complementosPorReceptor(borrador.captura)[0]?.receptor;
+    if (!r) return null;
+    return { Rfc: r.rfc, Nombre: r.nombre, RegimenFiscal: r.regimen, DomicilioFiscal: r.cp, UsoCfdi: "CP01" };
   }
   if (borrador.receptorRfc === RFC_PUBLICO_GENERAL) return RECEPTOR_GENERICO;
   return ctx.receptores.find((r) => r.Rfc === borrador.receptorRfc) ?? null;
@@ -841,66 +772,5 @@ export function calcularTotales(conceptos: ConceptoInput[], complementos?: Compl
     localesTrasladados: locales.traslados,
     localesRetenidos: locales.retenciones,
     total: subtotal + trasladados - retenidos + locales.traslados - locales.retenciones,
-  };
-}
-
-function round2(n: number) {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
-}
-
-/**
- * Arma el DoctoRelacionado que va dentro del Pago, prorrateando los
- * impuestos de la factura origen según el monto pagado.
- *
- * La fórmula (factor = monto pagado / total de la factura original,
- * aplicado a la Base de cada impuesto original) se verificó contra pagos
- * reales ya timbrados en el sistema: reproduce exactamente la Base y el
- * Importe que el SAT ya aceptó en pagos parciales anteriores.
- */
-export function construirDoctoRelacionado(pago: PagoBorrador): DoctoRelacionadoInput | null {
-  const fo = pago.facturaOrigen;
-  if (!fo) return null;
-
-  const monto = parseFloat(pago.monto) || 0;
-  const totalOriginal = parseFloat(fo.total) || 0;
-  const saldoAnt = parseFloat(pago.impSaldoAnt) || 0;
-  const saldoInsoluto = Math.max(round2(saldoAnt - monto), 0);
-  const factor = totalOriginal > 0 ? monto / totalOriginal : 0;
-
-  function prorratear(items: ImpuestoOrigen[]): ImpuestoPagoInput[] {
-    return items.map((imp) => {
-      const base = parseFloat(imp.base) * factor;
-      const importe = round2(base * parseFloat(imp.tasaOCuota));
-      return {
-        base: base.toFixed(6),
-        impuesto: imp.impuesto,
-        tipoFactor: imp.tipoFactor,
-        tasaOCuota: imp.tasaOCuota,
-        importe: importe.toFixed(2),
-      };
-    });
-  }
-
-  const trasladosDR = prorratear(fo.traslados);
-  const retencionesDR = prorratear(fo.retenciones);
-
-  return {
-    idDocumento: fo.uuid,
-    serie: fo.serie,
-    folio: fo.folio,
-    monedaDR: fo.moneda,
-    // Solo hay tipo de cambio real entre MonedaDR y MonedaP cuando
-    // difieren; si el pago se capturó en otra moneda que la de la factura
-    // origen, se asume que tipoCambioP (contra MXN) también aplica aquí -
-    // cubre el caso común (factura en MXN, pago en USD/EUR) sin pedir un
-    // tercer tipo de cambio en el formulario.
-    equivalenciaDR: fo.moneda === pago.monedaP ? "1" : pago.tipoCambioP || "1",
-    numParcialidad: pago.numParcialidad || "1",
-    impSaldoAnt: saldoAnt.toFixed(2),
-    impPagado: monto.toFixed(2),
-    impSaldoInsoluto: saldoInsoluto.toFixed(2),
-    objetoImpDR: trasladosDR.length > 0 || retencionesDR.length > 0 ? "02" : "01",
-    trasladosDR,
-    retencionesDR,
   };
 }

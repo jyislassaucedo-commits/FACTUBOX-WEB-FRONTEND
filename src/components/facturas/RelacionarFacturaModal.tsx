@@ -30,6 +30,7 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
  */
 export function RelacionarFacturaModal({
   titulo = "Relacionar la factura que corrige",
+  tipo = "I",
   rfcEmisor,
   yaRelacionados,
   onClose,
@@ -37,6 +38,8 @@ export function RelacionarFacturaModal({
 }: {
   /** Cambia según quién relaciona: la nota de crédito corrige, la factura solo relaciona. */
   titulo?: string;
+  /** Qué se busca: facturas, o complementos de pago cuando un complemento sustituye a otro. */
+  tipo?: "I" | "P";
   rfcEmisor: string;
   yaRelacionados: string[];
   onClose: () => void;
@@ -83,7 +86,7 @@ export function RelacionarFacturaModal({
 
     const params = new URLSearchParams({
       emisor: rfcEmisor,
-      tipo: "I",
+      tipo,
       estatus: "Vigente",
       desde,
       hasta,
@@ -110,7 +113,7 @@ export function RelacionarFacturaModal({
     return () => {
       vivo = false;
     };
-  }, [modo, clave, rfcEmisor, desde, hasta]);
+  }, [modo, clave, rfcEmisor, desde, hasta, tipo]);
 
   const filtradas = useMemo(() => {
     const query = q.trim().toLowerCase();

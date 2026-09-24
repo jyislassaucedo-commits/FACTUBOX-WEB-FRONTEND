@@ -737,6 +737,8 @@ export function PasoRelacion({
 }: Comun & { onAbrirRelacion: () => void }) {
   const err = (campo: string) => mensajeDe(problemas, campo, mostrarErrores);
   const r = borrador.relacion;
+  // Un complemento de pago solo se relaciona para sustituir a otro cancelado (04).
+  const esPago = borrador.tipo === "P";
 
   return (
     <div className="space-y-4">
@@ -745,33 +747,43 @@ export function PasoRelacion({
           activa={!borrador.relacionar}
           onClick={() => set({ relacionar: false })}
           titulo="No se relaciona"
-          detalle="Es una factura independiente (lo más común)"
+          detalle={esPago ? "Es un complemento nuevo (lo más común)" : "Es una factura independiente (lo más común)"}
         />
         <Opcion
           activa={borrador.relacionar}
-          onClick={() => set({ relacionar: true })}
-          titulo="Sí, se relaciona con otras facturas"
-          detalle="Sustituye a una cancelada, aplica un anticipo o viene de un traslado"
+          onClick={() =>
+            set(esPago ? { relacionar: true, relacion: { ...r, tipoRelacion: "04" } } : { relacionar: true })
+          }
+          titulo={esPago ? "Sí, sustituye a un complemento cancelado" : "Sí, se relaciona con otras facturas"}
+          detalle={
+            esPago
+              ? "Relación 04: el complemento anterior se canceló y este lo reemplaza"
+              : "Sustituye a una cancelada, aplica un anticipo o viene de un traslado"
+          }
         />
       </div>
 
       {borrador.relacionar && (
         <>
-          <Field
-            label="Tipo de relación"
-            hint="Las de nota de crédito, débito y devolución se hacen desde “Nota de crédito”."
-          >
-            <Select value={r.tipoRelacion} onChange={(e) => set({ relacion: { ...r, tipoRelacion: e.target.value } })}>
-              {TIPOS_RELACION_FACTURA.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          {!esPago && (
+            <Field
+              label="Tipo de relación"
+              hint="Las de nota de crédito, débito y devolución se hacen desde “Nota de crédito”."
+            >
+              <Select value={r.tipoRelacion} onChange={(e) => set({ relacion: { ...r, tipoRelacion: e.target.value } })}>
+                {TIPOS_RELACION_FACTURA.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[12.5px] font-semibold text-ink-2">Facturas relacionadas</p>
+            <p className="text-[12.5px] font-semibold text-ink-2">
+              {esPago ? "Complemento que sustituye" : "Facturas relacionadas"}
+            </p>
             <Button
               variant={r.uuids.length === 0 ? "primary" : "secondary"}
               onClick={onAbrirRelacion}
@@ -783,7 +795,10 @@ export function PasoRelacion({
 
           {r.uuids.length === 0 ? (
             <Note tone={err("relacion") ? "danger" : "info"}>
-              {err("relacion") ?? "Búscala en tus facturas timbradas o pega su folio fiscal (UUID)."}
+              {err("relacion") ??
+                (esPago
+                  ? "Búscalo en tus complementos timbrados o pega su folio fiscal (UUID)."
+                  : "Búscala en tus facturas timbradas o pega su folio fiscal (UUID).")}
             </Note>
           ) : (
             <>

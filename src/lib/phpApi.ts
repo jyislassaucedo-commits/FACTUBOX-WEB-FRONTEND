@@ -10,7 +10,8 @@ export type PhpResponse<T = Record<string, unknown>> =
 
 export async function callPhpApi<T = Record<string, unknown>>(
   path: string,
-  body: Record<string, string>
+  // Los endpoints web leen JSON: aceptan arreglos (p. ej. UUIDs), no solo texto.
+  body: Record<string, unknown>
 ): Promise<PhpResponse<T>> {
   const res = await fetch(`${PHP_API_BASE_URL}${path}`, {
     method: "POST",

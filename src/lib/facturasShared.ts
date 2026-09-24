@@ -45,6 +45,10 @@ export type FacturasFiltros = {
   desde: string;
   /** YYYY-MM-DD */
   hasta: string;
+  /** "PUE" | "PPD". Sin él, todos. */
+  metodoPago?: string;
+  /** Filtra por RFC del receptor (el backend lo busca con LIKE). */
+  rfcReceptor?: string;
 };
 
 export type ImpuestoOrigen = {

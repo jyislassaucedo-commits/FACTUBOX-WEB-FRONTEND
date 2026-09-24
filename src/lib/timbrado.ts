@@ -82,6 +82,8 @@ export type PagoInput = {
   monedaP: string;
   tipoCambioP: string;
   monto: string;
+  /** Número de operación del banco, si se capturó. */
+  numOperacion?: string;
   doctoRelacionado: DoctoRelacionadoInput[];
 };
 
@@ -105,6 +107,8 @@ export type NuevaFacturaInput = {
   conceptos: ConceptoInput[];
   /** Solo para tipoDeComprobante "P". */
   pago?: PagoInput;
+  /** Varios pagos en el mismo complemento (el asistente web). */
+  pagos?: PagoInput[];
   /** "YYYY-MM-DDTHH:mm:ss" en hora de México. Sin ella, la de este momento. */
   fecha?: string;
   /** Sin ella, MXN. */
@@ -153,126 +157,167 @@ function fechaLocalMexico(fecha: Date): string {
 }
 
 /**
- * Arma el JSON del complemento de Pagos 2.0. Verificado corriendo
- * JSON_CFDI40->crearXML() directamente (Tarea "ARMADO", que no timbra ni
- * consume nada) contra este mismo armado: la forma correcta es "objeto
- * envoltorio { claveSingular: [...] }" en cada nivel plural - igual patrón
- * que Conceptos.Concepto e Impuestos.Traslados.Traslado en el otro camino
- * de esta función, NO un arreglo plano como el que trae algún JSON de
- * ejemplo suelto en el repo (ese es de una versión distinta del backend).
+ * Arma el JSON del complemento de Pagos 2.0, con uno o varios Pago y uno o
+ * varios DoctoRelacionado en cada uno.
+ *
+ * La forma sigue la de endpoint/lib/plantillas/PLANTILLA_PAGO.php, que ya
+ * timbra complementos de N pagos × M documentos, y el orden de Pagos20.xsd:
+ *
+ *  - Retenciones antes que traslados, en ImpuestosDR y en ImpuestosP.
+ *    JSON_CFDI40 escribe los nodos en el orden de las llaves.
+ *  - RetencionP lleva SOLO ImpuestoP e ImporteP (el esquema no admite más).
+ *  - ImpuestosP va en la moneda del pago: cada impuesto del documento se
+ *    divide entre su EquivalenciaDR.
+ *  - Totales va en pesos: lo del pago por su TipoCambioP. MontoTotalPagos es
+ *    Σ Monto × TipoCambioP, que es lo que revisa REGLAS_CFDI40.
+ *  - Un traslado Exento no lleva tasa ni importe y suma a
+ *    TotalTrasladosBaseIVAExento.
+ *
+ * Verificado corriendo JSON_CFDI40->crearXML(): cada nivel plural es un
+ * objeto envoltorio { claveSingular: [...] }.
  */
-function buildDatosJSONPago(input: NuevaFacturaInput, pago: PagoInput) {
+const ORDEN_TOTALES = [
+  "TotalRetencionesIVA",
+  "TotalRetencionesISR",
+  "TotalRetencionesIEPS",
+  "TotalTrasladosBaseIVA16",
+  "TotalTrasladosImpuestoIVA16",
+  "TotalTrasladosBaseIVA8",
+  "TotalTrasladosImpuestoIVA8",
+  "TotalTrasladosBaseIVA0",
+  "TotalTrasladosImpuestoIVA0",
+  "TotalTrasladosBaseIVAExento",
+] as const;
+
+function buildDatosJSONPago(input: NuevaFacturaInput, pagos: PagoInput[]) {
   const fechaISO = fechaLocalMexico(new Date());
+  const totales: Record<string, number> = {};
+  const sumar = (clave: string, valor: number) => {
+    totales[clave] = (totales[clave] ?? 0) + valor;
+  };
+  let montoTotalPagos = 0;
 
-  const trasladosTotales = new Map<string, { impuesto: string; tasa: string; base: number; importe: number }>();
-  const retencionesTotales = new Map<string, { impuesto: string; tasa: string; base: number; importe: number }>();
-
-  function acumular(
-    mapa: Map<string, { impuesto: string; tasa: string; base: number; importe: number }>,
-    imp: ImpuestoPagoInput
-  ) {
-    const key = `${imp.impuesto}-${imp.tasaOCuota}`;
-    const acc = mapa.get(key) ?? { impuesto: imp.impuesto, tasa: imp.tasaOCuota, base: 0, importe: 0 };
-    acc.base += parseFloat(imp.base);
-    acc.importe += parseFloat(imp.importe);
-    mapa.set(key, acc);
-  }
-
-  function nodoImpuesto(imp: ImpuestoPagoInput, sufijo: "DR" | "P") {
+  function nodoDR(imp: ImpuestoPagoInput) {
+    const exento = imp.tipoFactor === "Exento";
     return {
-      [`Base${sufijo}`]: imp.base,
-      [`Impuesto${sufijo}`]: imp.impuesto,
-      [`TipoFactor${sufijo}`]: imp.tipoFactor,
-      [`TasaOCuota${sufijo}`]: imp.tasaOCuota,
-      [`Importe${sufijo}`]: imp.importe,
+      BaseDR: imp.base,
+      ImpuestoDR: imp.impuesto,
+      TipoFactorDR: imp.tipoFactor,
+      ...(exento ? {} : { TasaOCuotaDR: imp.tasaOCuota, ImporteDR: imp.importe }),
     };
   }
 
-  const doctosJSON = pago.doctoRelacionado.map((d) => {
-    d.trasladosDR.forEach((t) => acumular(trasladosTotales, t));
-    d.retencionesDR.forEach((t) => acumular(retencionesTotales, t));
+  const pagosJSON = pagos.map((pago) => {
+    const tc = parseFloat(pago.tipoCambioP) || 1;
+    type Acum = { impuesto: string; tipoFactor: string; tasa: string; base: number; importe: number; conEquivalencia: boolean };
+    const trasladosP = new Map<string, Acum>();
+    const retencionesP = new Map<string, Acum>();
 
-    const impuestosDR: Record<string, unknown> = {};
-    if (d.trasladosDR.length > 0) {
-      impuestosDR.TrasladosDR = { TrasladoDR: d.trasladosDR.map((t) => nodoImpuesto(t, "DR")) };
+    const doctosJSON = pago.doctoRelacionado.map((d) => {
+      const eq = parseFloat(d.equivalenciaDR) || 1;
+      for (const t of d.trasladosDR) {
+        const clave = `${t.impuesto}|${t.tipoFactor}|${t.tasaOCuota}`;
+        const acc = trasladosP.get(clave) ?? { impuesto: t.impuesto, tipoFactor: t.tipoFactor, tasa: t.tasaOCuota, base: 0, importe: 0, conEquivalencia: false };
+        if (eq !== 1) acc.conEquivalencia = true;
+        acc.base += parseFloat(t.base) / eq;
+        acc.importe += (parseFloat(t.importe) || 0) / eq;
+        trasladosP.set(clave, acc);
+      }
+      for (const r of d.retencionesDR) {
+        // En el pago, la retención se agrupa solo por impuesto.
+        const acc = retencionesP.get(r.impuesto) ?? { impuesto: r.impuesto, tipoFactor: r.tipoFactor, tasa: "", base: 0, importe: 0, conEquivalencia: false };
+        if (eq !== 1) acc.conEquivalencia = true;
+        acc.importe += (parseFloat(r.importe) || 0) / eq;
+        retencionesP.set(r.impuesto, acc);
+      }
+
+      const impuestosDR: Record<string, unknown> = {};
+      if (d.retencionesDR.length > 0) impuestosDR.RetencionesDR = { RetencionDR: d.retencionesDR.map(nodoDR) };
+      if (d.trasladosDR.length > 0) impuestosDR.TrasladosDR = { TrasladoDR: d.trasladosDR.map(nodoDR) };
+
+      return {
+        IdDocumento: d.idDocumento,
+        ...(d.serie ? { Serie: d.serie } : {}),
+        ...(d.folio ? { Folio: d.folio } : {}),
+        MonedaDR: d.monedaDR,
+        // Va siempre: el PAC la exige aunque el esquema la marque opcional.
+        EquivalenciaDR: d.equivalenciaDR || "1",
+        NumParcialidad: d.numParcialidad,
+        ImpSaldoAnt: d.impSaldoAnt,
+        ImpPagado: d.impPagado,
+        ImpSaldoInsoluto: d.impSaldoInsoluto,
+        ObjetoImpDR: d.objetoImpDR,
+        ...(Object.keys(impuestosDR).length > 0 ? { ImpuestosDR: impuestosDR } : {}),
+      };
+    });
+
+    /*
+       El SAT acepta ImporteP dentro de Σ(ImporteDR ± 0.005) / EquivalenciaDR.
+       Con equivalencia 1 eso es exacto a centavos; con una mayor a 1 (pago en
+       dólares de una factura en pesos: 18.5) el margen es de milésimas y dos
+       decimales se salen. Ahí va con seis, que el esquema permite.
+    */
+    const importeP = (a: Acum) => (a.conEquivalencia ? Math.round(a.importe * 1e6) / 1e6 : round2(a.importe));
+    const textoImporteP = (a: Acum, n: number) => n.toFixed(a.conEquivalencia ? 6 : 2);
+
+    const impuestosP: Record<string, unknown> = {};
+    if (retencionesP.size > 0) {
+      impuestosP.RetencionesP = {
+        RetencionP: [...retencionesP.values()].map((r) => {
+          const importe = importeP(r);
+          const campo = { [IMPUESTO_IVA]: "TotalRetencionesIVA", [IMPUESTO_ISR]: "TotalRetencionesISR", [IMPUESTO_IEPS]: "TotalRetencionesIEPS" }[r.impuesto];
+          if (campo) sumar(campo, importe * tc);
+          return { ImpuestoP: r.impuesto, ImporteP: textoImporteP(r, importe) };
+        }),
+      };
     }
-    if (d.retencionesDR.length > 0) {
-      impuestosDR.RetencionesDR = { RetencionDR: d.retencionesDR.map((t) => nodoImpuesto(t, "DR")) };
+    if (trasladosP.size > 0) {
+      impuestosP.TrasladosP = {
+        TrasladoP: [...trasladosP.values()].map((t) => {
+          const exento = t.tipoFactor === "Exento";
+          const importe = importeP(t);
+          if (t.impuesto === IMPUESTO_IVA) {
+            if (exento) sumar("TotalTrasladosBaseIVAExento", t.base * tc);
+            else {
+              const sufijo = { "0.160000": "16", "0.080000": "8", "0.000000": "0" }[parseFloat(t.tasa).toFixed(6)];
+              if (sufijo) {
+                sumar(`TotalTrasladosBaseIVA${sufijo}`, t.base * tc);
+                sumar(`TotalTrasladosImpuestoIVA${sufijo}`, importe * tc);
+              }
+            }
+          }
+          return {
+            BaseP: t.base.toFixed(6),
+            ImpuestoP: t.impuesto,
+            TipoFactorP: t.tipoFactor,
+            ...(exento ? {} : { TasaOCuotaP: t.tasa, ImporteP: textoImporteP(t, importe) }),
+          };
+        }),
+      };
     }
+
+    montoTotalPagos += round2((parseFloat(pago.monto) || 0) * tc);
 
     return {
-      IdDocumento: d.idDocumento,
-      ...(d.serie ? { Serie: d.serie } : {}),
-      ...(d.folio ? { Folio: d.folio } : {}),
-      MonedaDR: d.monedaDR,
-      EquivalenciaDR: d.equivalenciaDR,
-      NumParcialidad: d.numParcialidad,
-      ImpSaldoAnt: d.impSaldoAnt,
-      ImpPagado: d.impPagado,
-      ImpSaldoInsoluto: d.impSaldoInsoluto,
-      ObjetoImpDR: d.objetoImpDR,
-      ...(Object.keys(impuestosDR).length > 0 ? { ImpuestosDR: impuestosDR } : {}),
+      FechaPago: pago.fechaPago,
+      FormaDePagoP: pago.formaDePagoP,
+      MonedaP: pago.monedaP,
+      // Va siempre, también en pesos: el PAC la exige.
+      TipoCambioP: pago.monedaP === "MXN" ? "1" : pago.tipoCambioP || "1",
+      Monto: (parseFloat(pago.monto) || 0).toFixed(2),
+      ...(pago.numOperacion ? { NumOperacion: pago.numOperacion } : {}),
+      DoctoRelacionado: doctosJSON,
+      ...(Object.keys(impuestosP).length > 0 ? { ImpuestosP: impuestosP } : {}),
     };
   });
 
-  const impuestosP: Record<string, unknown> = {};
-  if (trasladosTotales.size > 0) {
-    impuestosP.TrasladosP = {
-      TrasladoP: [...trasladosTotales.values()].map((t) =>
-        nodoImpuesto(
-          { base: t.base.toFixed(6), impuesto: t.impuesto, tipoFactor: "Tasa", tasaOCuota: t.tasa, importe: round2(t.importe).toFixed(2) },
-          "P"
-        )
-      ),
-    };
+  const totalesJSON: Record<string, string> = {};
+  for (const clave of ORDEN_TOTALES) {
+    if (totales[clave] !== undefined) totalesJSON[clave] = round2(totales[clave]).toFixed(2);
   }
-  if (retencionesTotales.size > 0) {
-    impuestosP.RetencionesP = {
-      RetencionP: [...retencionesTotales.values()].map((t) =>
-        nodoImpuesto(
-          { base: t.base.toFixed(6), impuesto: t.impuesto, tipoFactor: "Tasa", tasaOCuota: t.tasa, importe: round2(t.importe).toFixed(2) },
-          "P"
-        )
-      ),
-    };
-  }
+  totalesJSON.MontoTotalPagos = round2(montoTotalPagos).toFixed(2);
 
-  const pagoJSON = {
-    FechaPago: pago.fechaPago,
-    FormaDePagoP: pago.formaDePagoP,
-    MonedaP: pago.monedaP,
-    TipoCambioP: pago.tipoCambioP || "1",
-    Monto: pago.monto,
-    DoctoRelacionado: doctosJSON,
-    ...(Object.keys(impuestosP).length > 0 ? { ImpuestosP: impuestosP } : {}),
-  };
-
-  // Solo IVA tiene un campo dedicado por tasa en Totales (16/8/0%); ISR e
-  // IEPS retenidos van en un total único sin desglose por tasa. Una tasa de
-  // IVA fuera de este catálogo (rarísimo) simplemente no suma a Totales -
-  // el desglose real sigue yendo en cada DoctoRelacionado/Pago.
-  const SUFIJO_IVA: Record<string, string> = { "0.160000": "16", "0.080000": "8", "0.000000": "0" };
-  const CAMPO_RETENCION: Record<string, string> = {
-    [IMPUESTO_IVA]: "TotalRetencionesIVA",
-    [IMPUESTO_ISR]: "TotalRetencionesISR",
-    [IMPUESTO_IEPS]: "TotalRetencionesIEPS",
-  };
-
-  const totales: Record<string, string> = {};
-  for (const t of trasladosTotales.values()) {
-    if (t.impuesto !== IMPUESTO_IVA) continue;
-    const sufijo = SUFIJO_IVA[t.tasa];
-    if (!sufijo) continue;
-    totales[`TotalTrasladosBaseIVA${sufijo}`] = t.base.toFixed(2);
-    totales[`TotalTrasladosImpuestoIVA${sufijo}`] = round2(t.importe).toFixed(2);
-  }
-  for (const t of retencionesTotales.values()) {
-    const campo = CAMPO_RETENCION[t.impuesto];
-    if (!campo) continue;
-    const previo = totales[campo] ? parseFloat(totales[campo]) : 0;
-    totales[campo] = round2(previo + t.importe).toFixed(2);
-  }
-  totales.MontoTotalPagos = round2(parseFloat(pago.monto)).toFixed(2);
+  const esRfcGenerico = input.receptorRfc === RECEPTOR_PUBLICO_GENERAL.Rfc;
 
   return {
     Version: "4.0",
@@ -288,6 +333,16 @@ function buildDatosJSONPago(input: NuevaFacturaInput, pago: PagoInput) {
     TipoDeComprobante: "P",
     Exportacion: "01",
     LugarExpedicion: input.lugarExpedicion,
+    ...(input.cfdiRelacionados && input.cfdiRelacionados.uuids.length > 0
+      ? {
+          CfdiRelacionados: [
+            {
+              TipoRelacion: input.cfdiRelacionados.tipoRelacion,
+              CfdiRelacionado: input.cfdiRelacionados.uuids.map((uuid) => ({ UUID: uuid })),
+            },
+          ],
+        }
+      : {}),
     Emisor: {
       Rfc: input.rfcEmisor,
       Nombre: input.nombreEmisor,
@@ -296,7 +351,8 @@ function buildDatosJSONPago(input: NuevaFacturaInput, pago: PagoInput) {
     Receptor: {
       Rfc: input.receptorRfc,
       Nombre: input.receptorNombre,
-      DomicilioFiscalReceptor: input.receptorDomicilioFiscal,
+      // Con el RFC genérico el SAT exige el CP del emisor.
+      DomicilioFiscalReceptor: esRfcGenerico ? input.lugarExpedicion : input.receptorDomicilioFiscal,
       RegimenFiscalReceptor: input.receptorRegimenFiscal,
       // Fijo por catálogo del SAT: un CFDI de Pago siempre lleva CP01.
       UsoCFDI: "CP01",
@@ -319,8 +375,8 @@ function buildDatosJSONPago(input: NuevaFacturaInput, pago: PagoInput) {
     Complemento: {
       Pagos: {
         Version: "2.0",
-        Totales: totales,
-        Pago: [pagoJSON],
+        Totales: totalesJSON,
+        Pago: pagosJSON,
       },
     },
     ...(input.addenda
@@ -343,8 +399,9 @@ function buildDatosJSONPago(input: NuevaFacturaInput, pago: PagoInput) {
 // los conceptos capturados. Exportada porque la autofactura por QR arma el
 // mismo comprobante (el backend le quita el Receptor).
 export function buildDatosJSON(input: NuevaFacturaInput) {
-  if (input.tipoDeComprobante === "P" && input.pago) {
-    return buildDatosJSONPago(input, input.pago);
+  if (input.tipoDeComprobante === "P") {
+    const pagos = input.pagos ?? (input.pago ? [input.pago] : []);
+    if (pagos.length > 0) return buildDatosJSONPago(input, pagos);
   }
 
   const ahora = new Date();

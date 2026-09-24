@@ -13,7 +13,6 @@ import {
   TIPOS_RELACION_FACTURA,
   borradorPara,
   calcularTotales,
-  construirDoctoRelacionado,
   llevaGlobal,
   pasosPara,
   receptorDe,
@@ -23,7 +22,10 @@ import {
   type PasoId,
 } from "@/lib/facturaNueva";
 import { activos } from "@/lib/complementos";
-import { PasoPagos, ResultadoTimbrado, RevisionSat } from "./PasosNuevaFactura";
+import { ResultadoTimbrado, RevisionSat } from "./PasosNuevaFactura";
+import { PasoPagos, type EditorAbierto } from "./nueva/pagos/PasoPagos";
+import { ResultadoComplementos, RevisionComplementos, type Emitido } from "./nueva/pagos/RevisionComplementos";
+import { aPagosInput, complementosPorReceptor, totalEnPesos } from "@/lib/pagosCaptura";
 import {
   PasoComplementos,
   PasoConceptos,
@@ -45,6 +47,7 @@ import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
 import type { Serie } from "@/lib/series";
 import type { TimbrarResult, TipoComprobante, ValidarResult } from "@/lib/timbrado";
+import type { CuerpoFactura as CuerpoTimbrado } from "@/lib/facturaEntrada";
 import { TIMBRES_BAJOS, type Timbres } from "@/lib/timbresShared";
 
 /*
@@ -78,6 +81,37 @@ const TIMBRADO_TIPO: Record<TipoComprobante, string> = {
   E: "Nota de crédito timbrada",
   P: "Complemento de pago timbrado",
 };
+
+/**
+ * Revisa contra el SAT cada comprobante, uno tras otro, y junta lo que
+ * encuentre. Con varios (un complemento por receptor), cada hallazgo dice de
+ * cuál es. Pasa solo si pasan todos.
+ */
+async function revisarTodos(
+  cuerpos: Array<{ etiqueta: string; cuerpo: CuerpoTimbrado }>
+): Promise<{ datos: ValidarResult } | { motivo: string }> {
+  const junto: ValidarResult = { Valido: "1", Validacion: { Errores: [], Advertencias: [], NoRevisado: [] } };
+  const varios = cuerpos.length > 1;
+  for (const { etiqueta, cuerpo } of cuerpos) {
+    const res = await fetch("/api/facturas/validar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cuerpo),
+    });
+    const body = await res.json();
+    if (!res.ok) return { motivo: `${varios ? `${etiqueta}: ` : ""}${body.error ?? "No se pudo revisar"}` };
+    const datos = body as ValidarResult;
+    const de = (h: { campo: string; mensaje: string }) =>
+      varios ? { ...h, mensaje: `${etiqueta}: ${h.mensaje}` } : h;
+    if (datos.Valido !== "1") junto.Valido = "0";
+    junto.Validacion.Errores.push(...datos.Validacion.Errores.map(de));
+    junto.Validacion.Advertencias.push(...datos.Validacion.Advertencias.map(de));
+    for (const n of datos.Validacion.NoRevisado) {
+      if (!junto.Validacion.NoRevisado.includes(n)) junto.Validacion.NoRevisado.push(n);
+    }
+  }
+  return { datos: junto };
+}
 
 export function NuevaFacturaWizard({
   emisores,
@@ -117,6 +151,10 @@ export function NuevaFacturaWizard({
   const [intentados, setIntentados] = useState<PasoId[]>([]);
   /** En pantallas medianas el comprobante se abre con un botón. */
   const [docAbierto, setDocAbierto] = useState(false);
+  /** El pago que se está armando en el paso "Pagos". "Pagar factura" entra con la factura ya elegida. */
+  const [editorPago, setEditorPago] = useState<EditorAbierto | null>(
+    tipoDeEntrada === "P" && origenUuid ? { id: null, preseleccion: [origenUuid] } : null
+  );
 
   /* ---------- Series, receptores y folio (igual que antes) --------------- */
   // Se cachean junto con la "clave" de la consulta que los produjo: derivar el
@@ -142,7 +180,8 @@ export function NuevaFacturaWizard({
   const [enviando, setEnviando] = useState(false);
   const progreso = useProgresoManual();
   const [errorEnvio, setErrorEnvio] = useState<string | null>(null);
-  const [resultado, setResultado] = useState<TimbrarResult | null>(null);
+  /** Lo timbrado: uno por comprobante (varios si el complemento se parte por receptor). */
+  const [emitidos, setEmitidos] = useState<Emitido[] | null>(null);
   const [revision, setRevision] = useState<ResultadoRevision | null>(null);
   const revisionEnVuelo = useRef<string | null>(null);
 
@@ -204,7 +243,12 @@ export function NuevaFacturaWizard({
 
   /* ---------- Validación en vivo ----------------------------------------- */
   const ctx = useMemo(() => ({ emisores, series, receptores }), [emisores, series, receptores]);
-  const problemas = useMemo(() => validar(borrador, ctx), [borrador, ctx]);
+  const problemas = useMemo(() => {
+    const p = validar(borrador, ctx);
+    // Un pago a medio armar no cuenta: hay que guardarlo o cancelarlo.
+    if (editorPago) p.pagos = [...p.pagos, { campo: "editor", mensaje: "Guarda o cancela el pago que estás armando." }];
+    return p;
+  }, [borrador, ctx, editorPago]);
   const receptorActual = useMemo(() => receptorDe(borrador, ctx), [borrador, ctx]);
   const emisorActual = emisores.find((e) => e.Rfc === borrador.rfcEmisor) ?? null;
 
@@ -216,21 +260,21 @@ export function NuevaFacturaWizard({
   const problemasPaso = problemas[paso.id];
 
   /**
-   * El cuerpo que esperan /api/facturas y /api/facturas/validar. Es el mismo
-   * para los dos a propósito: la revisión tiene que mirar exactamente el
-   * comprobante que se va a timbrar.
+   * Los cuerpos que esperan /api/facturas y /api/facturas/validar. Son los
+   * mismos para los dos a propósito: la revisión tiene que mirar exactamente
+   * lo que se va a timbrar. Uno por comprobante: el complemento de pago se
+   * parte en uno por receptor, con folios seguidos.
    */
-  function construirCuerpo() {
-    if (!emisorActual || !receptorActual) return null;
+  function construirCuerpos(): Array<{ clave: string; etiqueta: string; cuerpo: CuerpoTimbrado }> | null {
+    if (!emisorActual) return null;
     const b = borrador;
 
     // El <input type="datetime-local"> entrega "YYYY-MM-DDTHH:mm"; el SAT
     // espera segundos.
     const conSegundos = (f: string) => (f.length === 16 ? `${f}:00` : f);
-    const docto = b.tipo === "P" ? construirDoctoRelacionado(b.pago) : null;
-    const relaciona = b.tipo === "E" || (b.tipo === "I" && b.relacionar);
+    const relaciona = b.tipo === "E" || b.relacionar;
 
-    return {
+    const comun = {
       tipoDeComprobante: b.tipo,
       cfdiRelacionados: relaciona && b.relacion.uuids.length > 0 ? b.relacion : undefined,
       emisorToken: emisorActual.Token,
@@ -240,41 +284,64 @@ export function NuevaFacturaWizard({
       lugarExpedicion: emisorActual.LugarExp,
       serie: b.serie,
       folio: b.folio,
-      formaPago: b.formaPago,
-      metodoPago: b.metodoPago,
-      condicionesDePago: b.condicionesDePago.trim() || undefined,
-      receptorRfc: receptorActual.Rfc,
-      receptorNombre: receptorActual.Nombre,
-      receptorRegimenFiscal: receptorActual.RegimenFiscal,
-      receptorDomicilioFiscal: receptorActual.DomicilioFiscal,
-      receptorUsoCfdi: b.tipo === "P" ? "CP01" : b.usoCfdi,
-      conceptos: b.conceptos,
-      fecha: b.tipo !== "P" && !b.fechaActual && b.fechaEmision ? conSegundos(b.fechaEmision) : undefined,
-      moneda: b.tipo !== "P" ? b.moneda : undefined,
-      tipoCambio: b.tipo !== "P" && b.moneda !== "MXN" ? b.tipoCambio : undefined,
-      exportacion: b.tipo !== "P" ? b.exportacion : undefined,
-      informacionGlobal: llevaGlobal(b) ? b.global : undefined,
-      complementos: b.tipo === "I" && activos(b.complementos).length > 0 ? b.complementos : undefined,
       observaciones: b.observaciones.trim() || undefined,
-      pago:
-        b.tipo === "P" && docto
-          ? {
-              fechaPago: conSegundos(b.pago.fechaPago),
-              formaDePagoP: b.pago.formaDePagoP,
-              monedaP: b.pago.monedaP,
-              tipoCambioP: b.pago.tipoCambioP || "1",
-              monto: (parseFloat(b.pago.monto) || 0).toFixed(2),
-              doctoRelacionado: [docto],
-            }
-          : undefined,
     };
+
+    if (b.tipo === "P") {
+      const comps = complementosPorReceptor(b.captura);
+      if (comps.length === 0) return null;
+      const base = parseInt(b.folio, 10);
+      return comps.map((comp, i) => ({
+        clave: comp.receptor.rfc,
+        etiqueta: comp.receptor.nombre,
+        cuerpo: {
+          ...comun,
+          folio: Number.isFinite(base) ? String(base + i) : b.folio,
+          formaPago: "",
+          metodoPago: "",
+          receptorRfc: comp.receptor.rfc,
+          receptorNombre: comp.receptor.nombre,
+          receptorRegimenFiscal: comp.receptor.regimen,
+          receptorDomicilioFiscal: comp.receptor.cp,
+          receptorUsoCfdi: "CP01",
+          conceptos: [],
+          pagos: aPagosInput(b.captura, comp.pagos),
+        },
+      }));
+    }
+
+    if (!receptorActual) return null;
+    return [
+      {
+        clave: receptorActual.Rfc,
+        etiqueta: receptorActual.Nombre,
+        cuerpo: {
+          ...comun,
+          formaPago: b.formaPago,
+          metodoPago: b.metodoPago,
+          condicionesDePago: b.condicionesDePago.trim() || undefined,
+          receptorRfc: receptorActual.Rfc,
+          receptorNombre: receptorActual.Nombre,
+          receptorRegimenFiscal: receptorActual.RegimenFiscal,
+          receptorDomicilioFiscal: receptorActual.DomicilioFiscal,
+          receptorUsoCfdi: b.usoCfdi,
+          conceptos: b.conceptos,
+          fecha: !b.fechaActual && b.fechaEmision ? conSegundos(b.fechaEmision) : undefined,
+          moneda: b.moneda,
+          tipoCambio: b.moneda !== "MXN" ? b.tipoCambio : undefined,
+          exportacion: b.exportacion,
+          informacionGlobal: llevaGlobal(b) ? b.global : undefined,
+          complementos: b.tipo === "I" && activos(b.complementos).length > 0 ? b.complementos : undefined,
+        },
+      },
+    ];
   }
 
-  /* ---------- Revisión contra el SAT (igual que antes) ------------------- */
+  /* ---------- Revisión contra el SAT ------------------------------------ */
   const claveComprobante = useMemo(
     () => {
-      const cuerpo = construirCuerpo();
-      return cuerpo === null ? null : JSON.stringify(cuerpo);
+      const cuerpos = construirCuerpos();
+      return cuerpos === null ? null : JSON.stringify(cuerpos);
     },
     // Depende de todo lo que arma el comprobante.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -298,23 +365,14 @@ export function NuevaFacturaWizard({
     if (revision !== null && revision.clave === claveComprobante) return;
     if (revisionEnVuelo.current === claveComprobante) return;
 
-    const cuerpo = construirCuerpo();
-    if (cuerpo === null) return;
+    const cuerpos = construirCuerpos();
+    if (cuerpos === null) return;
     const clave = claveComprobante;
     revisionEnVuelo.current = clave;
     let vivo = true;
 
-    fetch("/api/facturas/validar", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cuerpo),
-    })
-      .then(async (res) => {
-        const body = await res.json();
-        return res.ok
-          ? { clave, datos: body as ValidarResult }
-          : { clave, motivo: (body.error as string) ?? "No se pudo revisar" };
-      })
+    revisarTodos(cuerpos)
+      .then((r) => ({ clave, ...r }))
       .catch(() => ({ clave, motivo: "No se pudo conectar con el servidor" }))
       .then((r) => vivo && setRevision(r))
       .finally(() => {
@@ -324,7 +382,7 @@ export function NuevaFacturaWizard({
     return () => {
       vivo = false;
     };
-    // construirCuerpo depende del borrador, que ya está resumido en la clave.
+    // construirCuerpos depende del borrador, que ya está resumido en la clave.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tocaRevisar, claveComprobante, revision]);
 
@@ -399,13 +457,19 @@ export function NuevaFacturaWizard({
           detalle: TIPOS_RELACION.find((t) => t.value === b.relacion.tipoRelacion)?.label,
         };
       case "pagos": {
-        const fo = b.pago.facturaOrigen;
-        return fo
-          ? {
-              valor: fo.serie ? `${fo.serie}-${fo.folio}` : fo.folio,
-              detalle: `Pago de ${money(b.pago.monto || "0", b.pago.monedaP)}`,
-            }
-          : { valor: "Sin factura" };
+        const n = b.captura.pagos.length;
+        if (n === 0) return { valor: "Sin pagos" };
+        const comps = complementosPorReceptor(b.captura);
+        const facturas = new Set(b.captura.pagos.flatMap((p) => p.docs.map((d) => d.uuid))).size;
+        return {
+          valor: `${n} pago${n === 1 ? "" : "s"} · ${money(totalEnPesos(b.captura.pagos))}`,
+          detalle: [
+            `${facturas} factura${facturas === 1 ? "" : "s"}`,
+            comps.length > 1 ? `${comps.length} receptores, ${comps.length} complementos` : comps[0]?.receptor.nombre,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        };
       }
       default:
         return { valor: "" };
@@ -430,6 +494,11 @@ export function NuevaFacturaWizard({
   });
 
   function irA(id: PasoId) {
+    // Salir del paso tiraría el pago a medio armar.
+    if (editorPago && id !== pasoActual) {
+      toast("Guarda o cancela el pago que estás armando", "danger");
+      return;
+    }
     setVisitados((prev) => (prev.includes(pasoActual) ? prev : [...prev, pasoActual]));
     setPasoActual(id);
     setDocAbierto(false);
@@ -462,6 +531,7 @@ export function NuevaFacturaWizard({
     setVisitados([]);
     setIntentados([]);
     setErrorEnvio(null);
+    setEditorPago(null);
     window.scrollTo({ top: 0 });
   }
 
@@ -469,7 +539,19 @@ export function NuevaFacturaWizard({
     setEnMenu(true);
     setModo("una");
     setErrorEnvio(null);
+    setEditorPago(null);
     window.scrollTo({ top: 0 });
+  }
+
+  /** El folio que sigue en la serie, pedido justo antes de timbrar para no chocar. */
+  async function folioSiguiente(): Promise<string> {
+    const serieInfo = series.find((s) => s.Nombre === borrador.serie);
+    const res = await fetch(
+      `/api/facturas/folio?rfc=${encodeURIComponent(borrador.rfcEmisor)}&serie=${encodeURIComponent(borrador.serie)}`
+    );
+    const body = await res.json();
+    const ultimo = body.ultimoFolio ?? 0;
+    return String(ultimo > 0 ? ultimo + 1 : parseInt(serieInfo?.Inicio ?? "1", 10) || 1);
   }
 
   async function timbrar() {
@@ -483,40 +565,72 @@ export function NuevaFacturaWizard({
       toast("El SAT rechazaría este comprobante", "danger");
       return;
     }
-    const cuerpo = construirCuerpo();
-    if (!cuerpo) return;
+    const cuerpos = construirCuerpos();
+    if (!cuerpos) return;
 
     setEnviando(true);
     // Bloqueante: timbrar consume un folio y un timbre ante el SAT. Un segundo
     // clic no es una molestia, es una factura duplicada que hay que cancelar.
-    const terminarProgreso = progreso("Timbrando ante el SAT…", true);
+    const terminarProgreso = progreso(
+      cuerpos.length > 1 ? `Timbrando ${cuerpos.length} complementos ante el SAT…` : "Timbrando ante el SAT…",
+      true
+    );
+    // Los que ya se timbraron en un intento anterior no se repiten.
+    const lista: Emitido[] = cuerpos.map(
+      ({ clave, etiqueta }) =>
+        emitidos?.find((e) => e.clave === clave && e.ok) ?? { clave, etiqueta, folio: "" }
+    );
     try {
-      const res = await fetch("/api/facturas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(cuerpo),
-      });
-      const body = await res.json();
-      if (!res.ok) {
-        setErrorEnvio(body.error ?? "No se pudo timbrar el comprobante");
-        return;
+      for (let i = 0; i < cuerpos.length; i++) {
+        if (lista[i].ok) continue;
+        try {
+          // Con varios complementos, cada uno pide su folio justo antes: el
+          // anterior ya ocupó el que se veía en pantalla.
+          const folio = borrador.tipo === "P" ? await folioSiguiente() : cuerpos[i].cuerpo.folio;
+          const res = await fetch("/api/facturas", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...cuerpos[i].cuerpo, folio }),
+          });
+          const body = await res.json();
+          lista[i] = res.ok
+            ? { ...lista[i], folio, ok: body as TimbrarResult, error: undefined }
+            : { ...lista[i], folio, error: body.error ?? "No se pudo timbrar el comprobante" };
+        } catch {
+          lista[i] = { ...lista[i], error: "No se pudo conectar con el servidor" };
+        }
       }
-      setResultado(body);
-      toast(TIMBRADO_TIPO[borrador.tipo]);
-    } catch {
-      setErrorEnvio("No se pudo conectar con el servidor");
     } finally {
       terminarProgreso();
       setEnviando(false);
     }
+
+    const bien = lista.filter((e) => e.ok).length;
+    if (bien === 0) {
+      // Nada se timbró: se queda en la revisión para corregir.
+      setErrorEnvio(
+        lista.length > 1 ? lista.map((e) => `${e.etiqueta}: ${e.error}`).join(" · ") : (lista[0].error ?? null)
+      );
+      return;
+    }
+    setEmitidos(lista);
+    toast(
+      bien === lista.length
+        ? lista.length > 1
+          ? `${bien} complementos timbrados`
+          : TIMBRADO_TIPO[borrador.tipo]
+        : `Se timbraron ${bien} de ${lista.length}`,
+      bien === lista.length ? undefined : "danger"
+    );
   }
 
   function otroComprobante() {
-    setResultado(null);
+    setEmitidos(null);
     setErrorEnvio(null);
     setVisitados([]);
     setIntentados([]);
     setPasoActual("emisor");
+    setEditorPago(null);
     setBorrador((prev) => borradorPara(prev.tipo, { rfcEmisor: prev.rfcEmisor }));
     setEnMenu(true);
   }
@@ -539,12 +653,21 @@ export function NuevaFacturaWizard({
     );
   }
 
-  if (resultado) {
-    return (
+  if (emitidos) {
+    const unico = emitidos.length === 1 ? emitidos[0].ok : undefined;
+    return unico ? (
       <ResultadoTimbrado
         titulo={TIMBRADO_TIPO[borrador.tipo]}
-        uuid={resultado.UUID}
-        fechaTimbrado={resultado.FechaTimbrado}
+        uuid={unico.UUID}
+        fechaTimbrado={unico.FechaTimbrado}
+        onOtra={otroComprobante}
+      />
+    ) : (
+      <ResultadoComplementos
+        serie={borrador.serie}
+        emitidos={emitidos}
+        enviando={enviando}
+        onReintentar={timbrar}
         onOtra={otroComprobante}
       />
     );
@@ -612,6 +735,7 @@ export function NuevaFacturaWizard({
       pasoActual={pasoActual}
       visto={visitado}
       titulos={titulos}
+      editandoPago={editorPago !== null}
     />
   );
 
@@ -657,7 +781,14 @@ export function NuevaFacturaWizard({
               <PasoRelacion {...comun} onAbrirRelacion={() => setModalRelacion(true)} />
             )}
             {pasoActual === "complementos" && <PasoComplementos {...comun} />}
-            {pasoActual === "pagos" && <PasoPagos {...comun} autoUuid={origenUuid} />}
+            {pasoActual === "pagos" && <PasoPagos {...comun} editor={editorPago} onEditor={setEditorPago} />}
+            {esRevision && borrador.tipo === "P" && (
+              <RevisionComplementos
+                borrador={borrador}
+                set={set}
+                mostrarErrores={intentados.includes("revision")}
+              />
+            )}
             {esRevision && (
               <PasoRevision
                 {...comun}
@@ -708,8 +839,9 @@ export function NuevaFacturaWizard({
           {docAbierto && <div className="mt-3">{documento}</div>}
         </div>
 
-        {/* ---------- Navegación ---------- */}
-        <div className="sticky bottom-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface/90 px-4 py-3 shadow-raised backdrop-blur">
+        {/* ---------- Navegación ----------
+            Mientras se arma un pago, el editor trae sus propios botones. */}
+        <div hidden={editorPago !== null && pasoActual === "pagos"} className="sticky bottom-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface/90 px-4 py-3 shadow-raised backdrop-blur">
           <Button variant="ghost" onClick={atras}>
             {indiceActual === 0 ? "Cambiar tipo" : "Atrás"}
           </Button>
@@ -744,7 +876,14 @@ export function NuevaFacturaWizard({
 
       {modalRelacion && (
         <RelacionarFacturaModal
-          titulo={borrador.tipo === "E" ? "Relacionar la factura que corrige" : "Relacionar facturas"}
+          titulo={
+            borrador.tipo === "E"
+              ? "Relacionar la factura que corrige"
+              : borrador.tipo === "P"
+                ? "Complemento cancelado que sustituye"
+                : "Relacionar facturas"
+          }
+          tipo={borrador.tipo === "P" ? "P" : "I"}
           rfcEmisor={borrador.rfcEmisor}
           yaRelacionados={borrador.relacion.uuids}
           onClose={() => setModalRelacion(false)}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { cx } from "@/components/ui";
 import { FORMAS_PAGO } from "@/lib/catalogosSat";
 import { money } from "@/lib/cfdi";
@@ -15,6 +16,7 @@ import {
   type PasoId,
 } from "@/lib/facturaNueva";
 import { activos } from "@/lib/complementos";
+import { cadena, complementosPorReceptor, folioDe, montoDe, ordenarPagos, totalEnPesos } from "@/lib/pagosCaptura";
 import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
 
@@ -37,6 +39,7 @@ export function DocumentoPreview({
   pasoActual,
   visto,
   titulos,
+  editandoPago = false,
 }: {
   borrador: FacturaBorrador;
   emisor: Emisor | null;
@@ -45,6 +48,8 @@ export function DocumentoPreview({
   /** Pasos ya visitados: lo demás se ve como hueco. */
   visto: (paso: PasoId) => boolean;
   titulos: Partial<Record<PasoId, string>>;
+  /** Hay un pago a medio armar: aparece aquí al guardarlo. */
+  editandoPago?: boolean;
 }) {
   const b = borrador;
   const esPago = b.tipo === "P";
@@ -52,9 +57,6 @@ export function DocumentoPreview({
   const lleno = (paso: PasoId) => visto(paso) || pasoActual === paso;
 
   const folio = b.serie && b.folio ? `${b.serie}-${b.folio}` : "—";
-  const pago = b.pago;
-  const montoPago = parseFloat(pago.monto) || 0;
-  const saldoAnt = parseFloat(pago.impSaldoAnt) || 0;
 
   return (
     // Es papel: se queda en tema claro aunque la app esté en oscuro.
@@ -100,47 +102,7 @@ export function DocumentoPreview({
       )}
 
       {esPago ? (
-        <>
-          <Seccion actual={pasoActual} pasos={["pagos"]} etiqueta="Receptor">
-            {receptor ? (
-              <>
-                <p className="font-semibold">{receptor.Nombre}</p>
-                <p className="text-ink-2">{receptor.Rfc} · uso CP01 Pagos</p>
-              </>
-            ) : (
-              <Hueco titulo={titulos.pagos ?? "pagos"} />
-            )}
-          </Seccion>
-          <Seccion actual={pasoActual} pasos={["pagos"]} etiqueta="Pago">
-            {pago.facturaOrigen ? (
-              <div className="space-y-0.5">
-                <p>
-                  Factura{" "}
-                  <span className="font-mono">
-                    {pago.facturaOrigen.serie
-                      ? `${pago.facturaOrigen.serie}-${pago.facturaOrigen.folio}`
-                      : pago.facturaOrigen.folio}
-                  </span>{" "}
-                  · parcialidad {pago.numParcialidad || "—"}
-                </p>
-                <p className="text-ink-2">
-                  {FORMAS_PAGO.find((f) => f.value === pago.formaDePagoP)?.label ?? "—"} ·{" "}
-                  {pago.fechaPago ? pago.fechaPago.replace("T", " ") : "sin fecha"}
-                </p>
-                <p className="text-ink-2">
-                  Saldo {money(saldoAnt, pago.monedaP)} − pago {money(montoPago, pago.monedaP)} = queda{" "}
-                  {money(Math.max(saldoAnt - montoPago, 0), pago.monedaP)}
-                </p>
-              </div>
-            ) : (
-              <Hueco titulo={titulos.pagos ?? "pagos"} />
-            )}
-          </Seccion>
-          <div className="flex items-baseline justify-end gap-4">
-            <span className="text-ink-3">Monto del pago</span>
-            <span className="font-mono text-[16px] font-extrabold">{money(montoPago, pago.monedaP)}</span>
-          </div>
-        </>
+        <SeccionPagos borrador={b} pasoActual={pasoActual} editando={editandoPago} titulo={titulos.pagos ?? "pagos"} />
       ) : (
         <>
           <Seccion actual={pasoActual} pasos={["receptor"]} etiqueta="Receptor">
@@ -311,5 +273,123 @@ function Hueco({ titulo }: { titulo: string }) {
     <p className="rounded-md border-[1.5px] border-dashed border-line px-2.5 py-2 text-[12px] text-ink-4">
       Se llena en el paso “{titulo}”
     </p>
+  );
+}
+
+/** El complemento de pago: uno por receptor, con un selector si hay varios. */
+function SeccionPagos({
+  borrador: b,
+  pasoActual,
+  editando,
+  titulo,
+}: {
+  borrador: FacturaBorrador;
+  pasoActual: PasoId;
+  editando: boolean;
+  titulo: string;
+}) {
+  const comps = complementosPorReceptor(b.captura);
+  const [elegido, setElegido] = useState<string | null>(null);
+  const idx = Math.max(0, comps.findIndex((c) => c.receptor.rfc === elegido));
+  const comp = comps[idx];
+  const tramos = cadena(b.captura);
+
+  return (
+    <>
+      {comps.length > 1 && (
+        <div role="group" aria-label="Complemento que se muestra" className="flex flex-wrap gap-1">
+          {comps.map((c, i) => (
+            <button
+              key={c.receptor.rfc}
+              type="button"
+              aria-pressed={i === idx}
+              onClick={() => setElegido(c.receptor.rfc)}
+              className={cx(
+                "focus-brand max-w-[150px] truncate rounded-md border px-2 py-0.5 text-[11.5px] font-semibold",
+                i === idx ? "border-[#0f1621] bg-[#0f1621] text-white" : "border-line text-ink-2"
+              )}
+            >
+              {c.receptor.nombre}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <Seccion actual={pasoActual} pasos={["pagos"]} etiqueta="Receptor">
+        {comp ? (
+          <>
+            <p className="font-semibold">{comp.receptor.nombre}</p>
+            <p className="text-ink-2">{comp.receptor.rfc} · uso CP01 Pagos</p>
+          </>
+        ) : (
+          <Hueco titulo={titulo} />
+        )}
+      </Seccion>
+
+      <Seccion actual={pasoActual} pasos={["pagos"]} etiqueta="Pagos">
+        {comp ? (
+          <div className="space-y-2.5">
+            {ordenarPagos(comp.pagos).map((p) => (
+              <div key={p.id}>
+                <p className="flex justify-between gap-3 font-semibold">
+                  <span>
+                    {p.fecha.split("-").reverse().join("/")} ·{" "}
+                    {FORMAS_PAGO.find((f) => f.value === p.forma)?.label.slice(5) ?? p.forma}
+                  </span>
+                  <span className="font-mono">{money(montoDe(p), p.moneda)}</span>
+                </p>
+                <table className="mt-0.5 w-full border-collapse">
+                  <thead>
+                    <tr className="text-left text-[11px] text-ink-3">
+                      <th className="border-b border-line py-0.5 font-semibold">Factura</th>
+                      <th className="border-b border-line py-0.5 text-right font-semibold">Parc.</th>
+                      <th className="border-b border-line py-0.5 text-right font-semibold">Pagado</th>
+                      <th className="border-b border-line py-0.5 text-right font-semibold">Insoluto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {p.docs.map((d) => {
+                      const f = b.captura.facturas[d.uuid];
+                      const t = tramos[`${p.id}|${d.uuid}`];
+                      if (!f || !t) return null;
+                      return (
+                        <tr key={d.uuid}>
+                          <td className="border-b border-line-2 py-0.5 font-mono">{folioDe(f)}</td>
+                          <td className="border-b border-line-2 py-0.5 text-right font-mono">{t.parcialidad}</td>
+                          <td className="border-b border-line-2 py-0.5 text-right font-mono">{money(t.pagado, f.moneda)}</td>
+                          <td className="border-b border-line-2 py-0.5 text-right font-mono">{money(t.insoluto, f.moneda)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Hueco titulo={titulo} />
+        )}
+        {editando && (
+          <p className="mt-2 rounded-md bg-info-bg px-2.5 py-1.5 text-[11.5px] text-info">
+            El pago que estás armando aparece aquí al guardarlo.
+          </p>
+        )}
+      </Seccion>
+
+      {b.relacionar && b.relacion.uuids.length > 0 && (
+        <Seccion actual={pasoActual} pasos={["relacion"]} etiqueta="Sustituye a">
+          {b.relacion.uuids.map((u) => (
+            <p key={u} className="break-all font-mono text-[11px] text-ink-2">
+              {u}
+            </p>
+          ))}
+        </Seccion>
+      )}
+
+      <div className="flex items-baseline justify-end gap-4">
+        <span className="text-ink-3">Total de pagos en pesos</span>
+        <span className="font-mono text-[16px] font-extrabold">{money(comp ? totalEnPesos(comp.pagos) : 0)}</span>
+      </div>
+    </>
   );
 }

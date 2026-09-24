@@ -51,8 +51,19 @@ export function revisarEntradaFactura(body: CuerpoFactura | null): string | null
     return "Una nota de crédito debe relacionar al menos un CFDI";
   }
 
-  if (tipo === "P" && !body.pago?.doctoRelacionado?.length) {
-    return "Un complemento de pago debe decir qué factura salda";
+  if (tipo === "P") {
+    const pagos = body.pagos ?? (body.pago ? [body.pago] : []);
+    if (pagos.length === 0) return "Un complemento de pago debe llevar al menos un pago";
+    for (const p of pagos) {
+      if (!p.doctoRelacionado?.length) return "Cada pago debe decir qué facturas salda";
+      if (!(parseFloat(p.monto) > 0)) return "Cada pago debe tener un monto mayor a 0";
+      if (p.monedaP !== "MXN" && !(parseFloat(p.tipoCambioP) > 0)) return "Falta el tipo de cambio de un pago";
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(p.fechaPago)) return "La fecha de un pago no tiene el formato correcto";
+      for (const d of p.doctoRelacionado) {
+        if (!UUID.test(d.idDocumento)) return "Una factura pagada tiene un folio fiscal inválido";
+        if (parseFloat(d.impPagado) - parseFloat(d.impSaldoAnt) > 0.01) return "Se paga más que el saldo de una factura";
+      }
+    }
   }
 
   // Lo que el asistente puede cambiar además de lo de siempre. Todo va tal

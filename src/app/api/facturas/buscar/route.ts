@@ -26,6 +26,9 @@ export async function GET(request: NextRequest) {
     estatus: sp.get("estatus") ?? "TODO",
     desde,
     hasta,
+    // El complemento de pago busca solo PPD, y del receptor de sus facturas.
+    metodoPago: sp.get("metodoPago") ?? undefined,
+    rfcReceptor: sp.get("rfcReceptor") ?? undefined,
   });
 
   return NextResponse.json({ facturas });
