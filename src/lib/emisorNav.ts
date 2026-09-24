@@ -16,7 +16,11 @@ export type EmisorSectionKey =
   | "series"
   | "receptores"
   | "empleados"
-  | "disenos";
+  | "disenos"
+  | "transportes"
+  | "figuras"
+  | "ubicaciones"
+  | "mercancias";
 
 export type EmisorSection = {
   key: EmisorSectionKey;
@@ -25,7 +29,7 @@ export type EmisorSection = {
   label: string;
   /** Texto corto para el dropdown de la barra superior. */
   description: string;
-  group: "emisor" | "catalogos";
+  group: "emisor" | "catalogos" | "cartaporte";
 };
 
 export const EMISOR_SECTIONS: EmisorSection[] = [
@@ -86,6 +90,36 @@ export const EMISOR_SECTIONS: EmisorSection[] = [
     label: "Diseños PDF",
     description: "Plantillas del PDF de facturas",
     group: "catalogos",
+  },
+  // Catálogos de carta porte: se guardan en la nube (tablas CP_*) con los
+  // mismos campos que Factubox Escritorio Carta Porte.
+  {
+    key: "transportes",
+    segment: "transportes",
+    label: "Transportes",
+    description: "Unidades por medio, con permiso SCT y seguros",
+    group: "cartaporte",
+  },
+  {
+    key: "figuras",
+    segment: "figuras",
+    label: "Figuras de transporte",
+    description: "Operadores, propietarios y arrendadores",
+    group: "cartaporte",
+  },
+  {
+    key: "ubicaciones",
+    segment: "ubicaciones",
+    label: "Ubicaciones",
+    description: "Orígenes y destinos que repites",
+    group: "cartaporte",
+  },
+  {
+    key: "mercancias",
+    segment: "mercancias",
+    label: "Mercancías",
+    description: "Lo que transportas, con clave y peso",
+    group: "cartaporte",
   },
 ];
 
