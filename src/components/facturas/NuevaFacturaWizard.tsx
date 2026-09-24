@@ -494,9 +494,14 @@ export function NuevaFacturaWizard({
   });
 
   function irA(id: PasoId) {
-    // Salir del paso tiraría el pago a medio armar.
-    if (editorPago && id !== pasoActual) {
-      toast("Guarda o cancela el pago que estás armando", "danger");
+    // Salir de "Pagos" con el editor abierto tiraría el pago a medio armar.
+    // Solo ahí: "Pagar factura" entra con el pago ya preparado desde el paso
+    // del emisor, y antes este aviso impedía siquiera llegar a verlo.
+    if (editorPago && pasoActual === "pagos" && id !== pasoActual) {
+      toast("Guarda o cancela el pago que estás armando: sus botones están al pie del pago", "danger");
+      document
+        .querySelector('section[aria-label="Nuevo pago"], section[aria-label="Editar pago"]')
+        ?.scrollIntoView({ behavior: "smooth", block: "end" });
       return;
     }
     setVisitados((prev) => (prev.includes(pasoActual) ? prev : [...prev, pasoActual]));
