@@ -80,6 +80,10 @@ export default async function NuevaFacturaPage({
         </Card>
       ) : (
         <NuevaFacturaWizard
+          // Ir de un tipo a otro desde el menú de la barra no cambia de página,
+          // solo de ?tipo=: sin la key, el asistente se quedaba en el tipo
+          // anterior porque su estado inicial ya se había tomado.
+          key={`${tipoInicial ?? ""}|${modoInicial ?? ""}|${origenUuid ?? ""}`}
           emisores={emisores}
           timbres={timbres}
           origenRfc={origenRfc}
