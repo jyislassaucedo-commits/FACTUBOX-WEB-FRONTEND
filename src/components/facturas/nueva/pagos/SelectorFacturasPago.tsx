@@ -679,7 +679,7 @@ function TablaFacturas({
                   {f.fecha.split("-").reverse().join("/")}
                 </td>
                 <td className="hidden whitespace-nowrap px-2 py-2.5 sm:px-3 text-right font-mono text-ink-2 sm:table-cell">{money(f.total, f.moneda)}</td>
-                <td className="whitespace-nowrap px-2 py-2.5 sm:px-3 text-right font-mono font-semibold text-ink">
+                <td className="px-2 py-2.5 text-right font-mono font-semibold text-ink sm:whitespace-nowrap sm:px-3">
                   {disp === null ? <span className="text-ink-4">…</span> : money(Math.max(disp, 0), f.moneda)}
                 </td>
               </tr>
@@ -775,7 +775,9 @@ function PagosAnteriores({
   );
 
   return (
-    <div className="space-y-1.5 text-[12px] text-ink-3">
+    // w-0 + min-w-full: el bloque toma el ancho que ya tiene la tabla en vez de
+    // ensancharla (a 400 px empujaba "Le queda" fuera de la vista).
+    <div className="w-0 min-w-full space-y-1.5 text-[12px] text-ink-3">
       {archivo}
 
       {/* Pagos que Factubox ya conoce. */}
