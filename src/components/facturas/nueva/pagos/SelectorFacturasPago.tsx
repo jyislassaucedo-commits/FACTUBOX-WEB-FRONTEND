@@ -8,7 +8,9 @@ import {
   desdeXml,
   folioDe,
   inicio,
+  pagoPosteriorEnFactubox,
   receptoresDe,
+  revisarComplementoPrevio,
   saldoDisponible,
   ultimaParcialidadEn,
   type CapturaPagos,
@@ -100,6 +102,7 @@ export function SelectorFacturasPago({
           onElegir={onElegir}
           onQuitar={onQuitar}
           onDecision={onDecision}
+          onActualizar={onActualizar}
         />
       ) : (
         <DesdeXml
@@ -159,12 +162,14 @@ function DeFactubox({
   onElegir,
   onQuitar,
   onDecision,
+  onActualizar,
 }: {
   rfcEmisor: string;
   c: CapturaPagos;
   pago: PagoCaptura;
   receptorEd: string | null;
   nombreReceptorEd: string | null;
+  onActualizar: (cambios: Array<{ f: FacturaPagable; decision?: Decision }>) => void;
   onElegir: (f: FacturaPagable) => void;
   onQuitar: (uuid: string) => void;
   onDecision: (uuid: string, d: Decision) => void;
@@ -354,6 +359,7 @@ function DeFactubox({
       />
       {errorDetalle && <Note tone="danger">{errorDetalle}</Note>}
       <TablaFacturas
+        rfcEmisor={rfcEmisor}
         filas={filas}
         c={c}
         pago={pago}
@@ -362,6 +368,7 @@ function DeFactubox({
         onElegir={elegir}
         onQuitar={onQuitar}
         onDecision={onDecision}
+        onActualizar={onActualizar}
       />
     </div>
   );
@@ -573,6 +580,7 @@ function DesdeXml({
 
       {deXml.length > 0 && (
         <TablaFacturas
+          rfcEmisor={rfcEmisor}
           filas={deXml}
           c={c}
           pago={pago}
@@ -581,6 +589,7 @@ function DesdeXml({
           onElegir={onElegir}
           onQuitar={onQuitar}
           onDecision={onDecision}
+          onActualizar={onActualizar}
         />
       )}
     </div>
@@ -592,6 +601,7 @@ function DesdeXml({
 /* -------------------------------------------------------------------------- */
 
 function TablaFacturas({
+  rfcEmisor,
   filas,
   c,
   pago,
@@ -600,7 +610,9 @@ function TablaFacturas({
   onElegir,
   onQuitar,
   onDecision,
+  onActualizar,
 }: {
+  rfcEmisor: string;
   /** disp null = el saldo todavía se está consultando. */
   filas: Array<{ f: FacturaPagable; disp: number | null }>;
   c: CapturaPagos;
@@ -610,6 +622,7 @@ function TablaFacturas({
   onElegir: (f: FacturaPagable) => void;
   onQuitar: (uuid: string) => void;
   onDecision: (uuid: string, d: Decision) => void;
+  onActualizar: (cambios: Array<{ f: FacturaPagable; decision?: Decision }>) => void;
 }) {
   if (filas.length === 0) {
     return (
@@ -635,7 +648,7 @@ function TablaFacturas({
           {filas.map(({ f, disp }) => {
             const elegida = pago.docs.some((d) => d.uuid === f.uuid);
             const otro = receptorEd !== null && f.receptor.rfc !== receptorEd;
-            const conHistorial = f.previos.length > 0 || f.complementoPrevio !== null;
+            const conHistorial = elegida;
             return (
               <Fragment key={f.uuid}>
               <tr className={cx("border-t border-line-2 align-top", elegida && "bg-brand-050")}>
@@ -670,12 +683,18 @@ function TablaFacturas({
                   {disp === null ? <span className="text-ink-4">…</span> : money(Math.max(disp, 0), f.moneda)}
                 </td>
               </tr>
-              {/* Cómo sigue si ya tenía pagos: en su propio renglón para que se lea de corrido. */}
+              {/* Cómo sigue si ya tenía pagos (de Factubox o de otro sistema): en su propio renglón. */}
               {conHistorial && (
                 <tr className={cx(elegida && "bg-brand-050")}>
                   <td />
                   <td colSpan={5} className="px-2 pb-2.5 sm:px-3">
-                    <Historial f={f} decision={c.decisiones[f.uuid]} onDecision={(d) => onDecision(f.uuid, d)} />
+                    <PagosAnteriores
+                      f={f}
+                      rfcEmisor={rfcEmisor}
+                      decision={c.decisiones[f.uuid]}
+                      onDecision={(d) => onDecision(f.uuid, d)}
+                      onActualizar={onActualizar}
+                    />
                   </td>
                 </tr>
               )}
@@ -688,49 +707,134 @@ function TablaFacturas({
   );
 }
 
-/** Cómo sigue una factura que ya tenía pagos: lo decide el usuario. */
-function Historial({
+/**
+ * Debajo de una factura marcada: cómo sigue si ya tenía pagos. Los de Factubox
+ * se ven solos; los hechos en otro sistema o en el SAT se cuentan subiendo el
+ * último complemento de pago de esa factura (propuesta aprobada: "al marcarla").
+ */
+function PagosAnteriores({
   f,
+  rfcEmisor,
   decision,
   onDecision,
+  onActualizar,
 }: {
   f: FacturaPagable;
+  rfcEmisor: string;
   decision?: Decision;
   onDecision: (d: Decision) => void;
+  onActualizar: (cambios: Array<{ f: FacturaPagable; decision?: Decision }>) => void;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [rechazo, setRechazo] = useState<{ archivo: string; motivo: string } | null>(null);
+  const [leyendo, setLeyendo] = useState(false);
   const nombre = `hist-${f.uuid}`;
-  if (f.previos.length > 0) {
-    const siguiente = inicio(f, "ultimo").parcialidad;
-    return (
-      <div role="radiogroup" aria-label={`Pagos anteriores de ${folioDe(f)}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-3">
-        <span>
-          {f.previos.length} pago{f.previos.length === 1 ? "" : "s"} anterior{f.previos.length === 1 ? "" : "es"}:
-        </span>
-        <label className="inline-flex items-center gap-1.5">
-          <input type="radio" name={nombre} checked={decision !== "cero"} onChange={() => onDecision("ultimo")} className="accent-[var(--brand)]" />
-          seguir desde el último (parc. {siguiente})
-        </label>
-        <label className="inline-flex items-center gap-1.5">
-          <input type="radio" name={nombre} checked={decision === "cero"} onChange={() => onDecision("cero")} className="accent-[var(--brand)]" />
-          desde cero
-        </label>
-      </div>
-    );
+  const usaSubido = f.complementoPrevio !== null && decision !== "primero" && (decision === "complemento" || f.previos.length === 0);
+  const posterior = usaSubido ? pagoPosteriorEnFactubox(f) : null;
+
+  async function subir(file: File | undefined) {
+    if (!file) return;
+    setLeyendo(true);
+    setRechazo(null);
+    try {
+      let cfdi: Cfdi | null = null;
+      try {
+        cfdi = parseCfdi(await leerTexto(file));
+      } catch {
+        cfdi = null;
+      }
+      const r = revisarComplementoPrevio(cfdi, file.name, f, rfcEmisor);
+      if (r.estado === "rechazado") setRechazo({ archivo: file.name, motivo: r.motivo });
+      else onActualizar([{ f: { ...f, complementoPrevio: r.previo }, decision: "complemento" }]);
+    } finally {
+      setLeyendo(false);
+    }
   }
-  if (f.complementoPrevio) {
-    return (
-      <div role="radiogroup" aria-label={`Pagos anteriores de ${folioDe(f)}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-3">
-        <span>Viene de fuera:</span>
-        <label className="inline-flex items-center gap-1.5">
-          <input type="radio" name={nombre} checked={decision !== "primero"} onChange={() => onDecision("complemento")} className="accent-[var(--brand)]" />
-          sigue de {f.complementoPrevio.archivo} (parc. {f.complementoPrevio.parcialidad + 1})
-        </label>
-        <label className="inline-flex items-center gap-1.5">
-          <input type="radio" name={nombre} checked={decision === "primero"} onChange={() => onDecision("primero")} className="accent-[var(--brand)]" />
-          es el primer pago
-        </label>
-      </div>
-    );
-  }
-  return null;
+
+  const archivo = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept=".xml,text/xml,application/xml"
+      hidden
+      onChange={(e) => {
+        subir(e.target.files?.[0]);
+        e.target.value = "";
+      }}
+    />
+  );
+  const botonSubir = (texto: string) => (
+    <button
+      type="button"
+      onClick={() => inputRef.current?.click()}
+      disabled={leyendo}
+      className="focus-brand rounded font-semibold text-brand underline disabled:opacity-60"
+    >
+      {leyendo ? "Leyendo…" : texto}
+    </button>
+  );
+
+  return (
+    <div className="space-y-1.5 text-[12px] text-ink-3">
+      {archivo}
+
+      {/* Pagos que Factubox ya conoce. */}
+      {f.previos.length > 0 && !usaSubido && (
+        <div role="radiogroup" aria-label={`Pagos anteriores de ${folioDe(f)}`} className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span>
+            {f.previos.length} pago{f.previos.length === 1 ? "" : "s"} en Factubox:
+          </span>
+          <label className="inline-flex items-center gap-1.5">
+            <input type="radio" name={nombre} checked={decision !== "cero"} onChange={() => onDecision("ultimo")} className="accent-[var(--brand)]" />
+            seguir desde el último (parc. {inicio(f, "ultimo").parcialidad})
+          </label>
+          <label className="inline-flex items-center gap-1.5">
+            <input type="radio" name={nombre} checked={decision === "cero"} onChange={() => onDecision("cero")} className="accent-[var(--brand)]" />
+            desde cero
+          </label>
+        </div>
+      )}
+
+      {usaSubido && f.complementoPrevio ? (
+        <div className="space-y-1">
+          <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="font-semibold text-ok">✓ Sigue del complemento {f.complementoPrevio.archivo}:</span>
+            <span className="text-ink-2">
+              parcialidad {f.complementoPrevio.parcialidad + 1} · saldo {money(f.complementoPrevio.insoluto, f.moneda)}
+            </span>
+            <button
+              type="button"
+              onClick={() => onActualizar([{ f: { ...f, complementoPrevio: null }, decision: "ultimo" }])}
+              className="focus-brand rounded font-semibold text-ink-3 underline hover:text-danger"
+            >
+              Quitar
+            </button>
+          </p>
+          {posterior !== null && (
+            <p className="text-warn">
+              Factubox tiene un pago posterior (parcialidad {posterior}); se seguirá del que subiste.
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span>
+            {f.previos.length > 0
+              ? "¿Hay un pago más reciente hecho en otro sistema o en el SAT?"
+              : "¿Ya se le hizo un pago en otro sistema o en el SAT?"}
+          </span>
+          {botonSubir("Subir su último complemento de pago")}
+        </p>
+      )}
+
+      {rechazo && (
+        <p role="alert" className="flex flex-wrap items-baseline gap-x-2 text-danger">
+          <span>
+            ✕ {rechazo.archivo} {rechazo.motivo}
+          </span>
+          {botonSubir("Subir otro")}
+        </p>
+      )}
+    </div>
+  );
 }

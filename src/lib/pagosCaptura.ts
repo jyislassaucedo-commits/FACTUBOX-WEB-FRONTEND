@@ -97,6 +97,11 @@ function trunc2(n: number) {
 
 /** Parcialidad y saldo con que empieza una factura, según su historial y la decisión. */
 export function inicio(f: FacturaPagable, decision?: Decision) {
+  // El complemento que el usuario subió manda: es su forma de decir "el
+  // último pago se hizo fuera de Factubox".
+  if (decision === "complemento" && f.complementoPrevio) {
+    return { parcialidad: f.complementoPrevio.parcialidad + 1, saldo: f.complementoPrevio.insoluto };
+  }
   if (f.previos.length > 0 && decision !== "cero") {
     // Vienen de la primera a la última (ver PAGO_DOCTO_SERVICE::pagosDe): con dos
     // cadenas que chocan en la misma parcialidad, manda la que llega después.
@@ -498,6 +503,51 @@ export function ultimaParcialidadEn(cfdi: Cfdi, uuid: string, archivo: string) {
     }
   }
   return mejor;
+}
+
+const NOMBRE_TIPO: Record<string, string> = {
+  I: "una factura de ingreso",
+  E: "una nota de crédito (egreso)",
+  N: "un recibo de nómina",
+  T: "un comprobante de traslado",
+};
+
+export type RevisionComplementoPrevio =
+  | { estado: "listo"; previo: NonNullable<FacturaPagable["complementoPrevio"]> }
+  | { estado: "rechazado"; motivo: string };
+
+/**
+ * ¿Sirve este XML como "el último pago que se hizo en otro sistema" de la
+ * factura? Tiene que ser un complemento de pago (tipo P) timbrado, del mismo
+ * emisor y receptor, que incluya la factura y le deje saldo.
+ */
+export function revisarComplementoPrevio(
+  cfdi: Cfdi | null,
+  archivo: string,
+  f: FacturaPagable,
+  rfcEmisor: string
+): RevisionComplementoPrevio {
+  const no = (motivo: string): RevisionComplementoPrevio => ({ estado: "rechazado", motivo });
+  if (!cfdi || !cfdi.tipoDeComprobante) return no("no es un CFDI.");
+  if (cfdi.tipoDeComprobante !== "P") {
+    return no(`es ${NOMBRE_TIPO[cfdi.tipoDeComprobante] ?? `un comprobante tipo ${cfdi.tipoDeComprobante}`}, no un complemento de pago (tipo P).`);
+  }
+  if (!cfdi.timbre?.uuid) return no("no está timbrado.");
+  if (cfdi.emisor.rfc.toUpperCase() !== rfcEmisor.toUpperCase()) return no(`es de otro emisor (${cfdi.emisor.rfc}).`);
+  if (f.receptor.rfc && cfdi.receptor.rfc.toUpperCase() !== f.receptor.rfc.toUpperCase()) {
+    return no(`es de otro receptor (${cfdi.receptor.rfc}).`);
+  }
+  const previo = ultimaParcialidadEn(cfdi, f.uuid, archivo);
+  if (!previo) return no(`no incluye la factura ${folioDe(f)}.`);
+  if (previo.insoluto <= 0.004) return no("con ese complemento la factura ya quedó pagada (saldo 0).");
+  return { estado: "listo", previo };
+}
+
+/** Si Factubox tiene un pago más adelante que el complemento subido, cuál. */
+export function pagoPosteriorEnFactubox(f: FacturaPagable) {
+  if (!f.complementoPrevio || f.previos.length === 0) return null;
+  const max = Math.max(...f.previos.map((p) => p.parcialidad));
+  return max > f.complementoPrevio.parcialidad ? max : null;
 }
 
 /** Lo que devuelve /api/facturas/por-pagar: PPD con saldo, por receptor. */
