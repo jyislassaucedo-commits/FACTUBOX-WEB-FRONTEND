@@ -33,6 +33,8 @@ export type ConceptoInput = {
   cantidad: number;
   valorUnitario: number;
   impuestos: ImpuestoConceptoInput[];
+  /** Solo si viene de una prefactura del escritorio: se conserva tal cual. */
+  noIdentificacion?: string;
 };
 
 /** Tipos de comprobante que esta pantalla sabe armar hoy. */
@@ -461,6 +463,7 @@ export function buildDatosJSON(input: NuevaFacturaInput) {
       // debe tener contenido (minLength 1) - un string vacio lo rechaza el
       // PAC con "XML mal formado" (facet minLength underrun). Se omite.
       ClaveProdServ: c.claveProdServ,
+      ...(c.noIdentificacion?.trim() ? { NoIdentificacion: c.noIdentificacion.trim() } : {}),
       Cantidad: String(c.cantidad),
       ClaveUnidad: c.claveUnidad,
       Unidad: c.unidad,

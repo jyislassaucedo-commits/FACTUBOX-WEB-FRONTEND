@@ -48,6 +48,7 @@ import {
 } from "./nueva/cartaPorte/PasosCartaPorte";
 import { conceptosTraslado, nodoCartaPorte } from "@/lib/cartaPorte/construirJson";
 import { claveLocal, totalesCartaPorte } from "@/lib/cartaPorte/borrador";
+import type { PrefacturaAbierta } from "@/lib/cartaPorte/leerJson";
 import { nombreMedio } from "@/lib/cartaPorteShared";
 import { RielPasos, type EstadoPaso, type PasoRiel } from "./nueva/RielPasos";
 import { DocumentoPreview } from "./nueva/DocumentoPreview";
@@ -134,6 +135,7 @@ export function NuevaFacturaWizard({
   tipoInicial,
   modoInicial,
   claves,
+  abierta,
 }: {
   emisores: Emisor[];
   timbres: Timbres | null;
@@ -145,6 +147,8 @@ export function NuevaFacturaWizard({
   modoInicial?: ModoCaptura;
   /** Claves aleatorias del primer borrador, generadas en el servidor para que la hidratación coincida. */
   claves?: { uuidLocal: string; idCCP: string };
+  /** Una prefactura de la nube abierta (o duplicada) desde /facturas/prefacturas. */
+  abierta?: PrefacturaAbierta;
 }) {
   const toast = useToast();
 
@@ -153,6 +157,7 @@ export function NuevaFacturaWizard({
     emisorOrigenValido && origenUuid ? "P" : (tipoInicial ?? null);
 
   const [borrador, setBorrador] = useState<FacturaBorrador>(() => {
+    if (abierta) return abierta.borrador;
     const inicial = borradorPara(tipoDeEntrada ?? "I", {
       rfcEmisor: emisorOrigenValido ? origenRfc! : (emisores[0]?.Rfc ?? ""),
     });
@@ -161,11 +166,14 @@ export function NuevaFacturaWizard({
       : inicial;
   });
   /** Sin tipo decidido se empieza en el menú; con atajo, directo al primer paso. */
-  const [enMenu, setEnMenu] = useState(tipoDeEntrada === null && modoInicial !== "plantilla");
+  const [enMenu, setEnMenu] = useState(!abierta && tipoDeEntrada === null && modoInicial !== "plantilla");
   const [modo, setModo] = useState<ModoCaptura>(modoInicial ?? "una");
   const [pasoActual, setPasoActual] = useState<PasoId>("emisor");
   /** Pasos que el usuario ya dejó atrás: el riel los pinta en verde o con "!". */
-  const [visitados, setVisitados] = useState<PasoId[]>([]);
+  // Una prefactura abierta ya tiene sus pasos llenos: el riel deja ir a cualquiera.
+  const [visitados, setVisitados] = useState<PasoId[]>(() =>
+    abierta ? pasosPara(abierta.borrador.tipo, abierta.borrador.cartaPorte !== null).map((p) => p.id).filter((id) => id !== "revision") : []
+  );
   /** Pasos donde intentó avanzar: solo ahí se señalan los errores junto al campo. */
   const [intentados, setIntentados] = useState<PasoId[]>([]);
   /** En pantallas medianas el comprobante se abre con un botón. */
@@ -209,8 +217,11 @@ export function NuevaFacturaWizard({
      "Guardar"), como las prefacturas del escritorio: el mismo JSON del CFDI.
      Se reconoce por uuidLocal; nunca van dos guardados a la vez y no se manda
      si no cambió nada desde el último. */
-  const [uuidLocal, setUuidLocal] = useState(() => claves?.uuidLocal ?? claveLocal());
-  const [nube, setNube] = useState<{ estado: "guardando" | "guardada" | "error"; hora?: string; mensaje?: string; id?: number } | null>(null);
+  const [uuidLocal, setUuidLocal] = useState(() => abierta?.uuidLocal ?? claves?.uuidLocal ?? claveLocal());
+  const [nube, setNube] = useState<{ estado: "guardando" | "guardada" | "error"; hora?: string; mensaje?: string; id?: number } | null>(
+    abierta?.id ? { estado: "guardada", id: abierta.id, hora: abierta.guardada } : null
+  );
+  const [avisosPrefactura, setAvisosPrefactura] = useState<string[]>(abierta?.avisos ?? []);
   const ultimaGuardada = useRef<string | null>(null);
   const guardandoNube = useRef(false);
 
@@ -897,6 +908,18 @@ export function NuevaFacturaWizard({
       />
 
       <div className="min-w-0 space-y-4">
+        {avisosPrefactura.length > 0 && (
+          <Note tone="warn" title="Revisa esta prefactura antes de timbrar">
+            <ul className="mt-1 list-disc space-y-0.5 pl-4">
+              {avisosPrefactura.map((a) => (
+                <li key={a}>{a}</li>
+              ))}
+            </ul>
+            <button type="button" onClick={() => setAvisosPrefactura([])} className="focus-brand mt-1.5 rounded text-[12px] font-medium underline">
+              Entendido
+            </button>
+          </Note>
+        )}
         <Card>
           <CardBody className="space-y-5">
             <div className="space-y-1">

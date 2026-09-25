@@ -2,6 +2,8 @@ import { callLegacyPhpApi, type PhpResponse } from "./phpApi";
 import { getSession } from "./session";
 import { buildDatosJSON } from "./timbrado";
 import type { CuerpoFactura } from "./facturaEntrada";
+import { borradorDesdeCfdi, type PrefacturaAbierta } from "./cartaPorte/leerJson";
+import { claveLocal } from "./cartaPorte/borrador";
 
 /*
    Prefacturas en la nube (tabla PREFACTURA, maa/mvc/Prefactura/api/*WebV2).
@@ -117,4 +119,44 @@ export async function borrarPrefactura(rfcEmisor: string, id: number): Promise<P
   const session = await getSession();
   if (!session) return { Error: "1", DescripError: "No autenticado" };
   return callLegacyPhpApi(`${BASE}/deletePrefacturaWebV2.php`, { Token: session.token, RfcEmisor: rfcEmisor, Id: String(id) });
+}
+
+/**
+ * Una prefactura lista para el asistente: la trae, decodifica su JSON y lo
+ * convierte en borrador. Con `duplicar` es una nueva (otra fila, otro IdCCP).
+ */
+export async function abrirPrefactura(
+  rfcEmisor: string,
+  id: number,
+  duplicar: boolean
+): Promise<{ ok: true; abierta: PrefacturaAbierta } | { ok: false; motivo: string }> {
+  const resp = await obtenerPrefactura(rfcEmisor, id);
+  if (resp.Error !== "0") return { ok: false, motivo: resp.DescripError || "No se encontró la prefactura" };
+  let cfdi: Record<string, unknown>;
+  try {
+    cfdi = JSON.parse(Buffer.from(resp.Base64, "base64").toString("utf8"));
+  } catch {
+    return { ok: false, motivo: "El contenido de la prefactura no se puede leer" };
+  }
+  const lectura = borradorDesdeCfdi(cfdi, { rfcEmisor, duplicar });
+  if (!lectura.ok) return lectura;
+  const [a, m, d] = (resp.Prefactura.FechaReg ?? "").split("-");
+  // Si algo no se pudo leer, el autoguardado no debe pisar la original (del
+  // escritorio, casi siempre) con una versión a la que le falta: se trabaja
+  // sobre una copia.
+  const copia = duplicar || lectura.avisos.length > 0 || !resp.Prefactura.UUIDLocal;
+  const avisos =
+    copia && !duplicar && lectura.avisos.length > 0
+      ? [...lectura.avisos, "Por eso se abrió como copia: la prefactura original queda intacta en la nube."]
+      : lectura.avisos;
+  return {
+    ok: true,
+    abierta: {
+      borrador: lectura.borrador,
+      uuidLocal: copia ? claveLocal() : resp.Prefactura.UUIDLocal,
+      id: copia ? null : resp.Prefactura.Id,
+      avisos,
+      guardada: !copia && d ? `el ${d}/${m}/${a}` : undefined,
+    },
+  };
 }

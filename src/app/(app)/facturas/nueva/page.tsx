@@ -6,6 +6,7 @@ import { getEmisores } from "@/lib/emisores";
 import { emisorEstaActivo } from "@/lib/emisoresShared";
 import { getTimbres } from "@/lib/timbres";
 import { claveLocal, generarIdCCP } from "@/lib/cartaPorte/borrador";
+import { abrirPrefactura } from "@/lib/prefacturas";
 
 /**
  * Los emisores se cargan en el servidor: son lo primero que necesita el
@@ -24,9 +25,13 @@ export default async function NuevaFacturaPage({
     origenUuid?: string;
     tipo?: string;
     modo?: string;
+    /** Abrir una prefactura de la nube: ?prefactura=ID&rfc=RFC (&duplicar=1 para una copia nueva). */
+    prefactura?: string;
+    rfc?: string;
+    duplicar?: string;
   }>;
 }) {
-  const [{ origenRfc, origenUuid, tipo, modo }, todos, timbres] = await Promise.all([
+  const [{ origenRfc, origenUuid, tipo, modo, prefactura, rfc, duplicar }, todos, timbres] = await Promise.all([
     searchParams,
     getEmisores(),
     getTimbres(),
@@ -47,6 +52,13 @@ export default async function NuevaFacturaPage({
   // Las claves aleatorias del primer borrador salen de aquí: si las generara el
   // asistente, el servidor y el navegador pintarían un IdCCP distinto.
   const claves = { uuidLocal: claveLocal(), idCCP: generarIdCCP() };
+
+  // Solo se abre si el emisor es uno de los activos del usuario (el backend
+  // además revisa que la prefactura sea suya).
+  const idPrefactura = Number(prefactura);
+  const emisorPrefactura = rfc && emisores.some((e) => e.Rfc === rfc) ? rfc : null;
+  const apertura =
+    idPrefactura > 0 && emisorPrefactura ? await abrirPrefactura(emisorPrefactura, idPrefactura, duplicar === "1") : null;
 
   return (
     <div className="space-y-5">
@@ -69,7 +81,18 @@ export default async function NuevaFacturaPage({
           consejo manda a crear un emisor de más, cuando lo que hace falta es
           reactivar el que ya existe. Se distinguen los dos casos aquí para no
           tocar el asistente. */}
-      {todos.length > 0 && emisores.length === 0 ? (
+      {apertura && !apertura.ok && (
+        <Card className="mx-auto max-w-lg">
+          <CardBody className="text-center">
+            <p className="text-sm font-semibold text-ink">No se pudo abrir la prefactura</p>
+            <p className="mt-1 text-[13px] text-ink-3">{apertura.motivo}</p>
+            <Link href="/facturas/prefacturas" className={buttonClass("secondary", "md", "mt-4")}>
+              Volver a las prefacturas
+            </Link>
+          </CardBody>
+        </Card>
+      )}
+      {apertura && !apertura.ok ? null : todos.length > 0 && emisores.length === 0 ? (
         <Card className="mx-auto max-w-lg">
           <CardBody className="text-center">
             <p className="text-sm font-semibold text-ink">
@@ -88,7 +111,7 @@ export default async function NuevaFacturaPage({
           // Ir de un tipo a otro desde el menú de la barra no cambia de página,
           // solo de ?tipo=: sin la key, el asistente se quedaba en el tipo
           // anterior porque su estado inicial ya se había tomado.
-          key={`${tipoInicial ?? ""}|${modoInicial ?? ""}|${origenUuid ?? ""}`}
+          key={`${tipoInicial ?? ""}|${modoInicial ?? ""}|${origenUuid ?? ""}|${prefactura ?? ""}|${duplicar ?? ""}`}
           emisores={emisores}
           timbres={timbres}
           origenRfc={origenRfc}
@@ -96,6 +119,7 @@ export default async function NuevaFacturaPage({
           tipoInicial={tipoInicial}
           modoInicial={modoInicial}
           claves={claves}
+          abierta={apertura?.ok ? apertura.abierta : undefined}
         />
       )}
     </div>
