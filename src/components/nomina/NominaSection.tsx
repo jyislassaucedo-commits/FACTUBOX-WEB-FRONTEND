@@ -9,7 +9,6 @@ import {
 } from "@/components/ui";
 import { buttonClass } from "@/components/ui/styles";
 import { dias, etiquetaPeriodicidad, pesos } from "@/lib/nominaShared";
-import { CorridaFormModal } from "./CorridaFormModal";
 import { RepetirCorridaModal } from "./RepetirCorridaModal";
 import type { NombreCorrida, PeriodoNomina } from "@/lib/nomina";
 
@@ -63,7 +62,6 @@ export function NominaSection({
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [abierto, setAbierto] = useState(false);
   const [repetir, setRepetir] = useState<string | null>(null);
   const [filtro, setFiltro] = useState<Filtro>({ tipo: "todas" });
 
@@ -150,9 +148,9 @@ export function NominaSection({
               <Link href={`/facturas/nomina/manual`} className={buttonClass("secondary")}>
                 Nómina manual
               </Link>
-              <Button variant="primary" onClick={() => setAbierto(true)}>
+              <Link href="/facturas/nomina/nueva" className={buttonClass("primary")}>
                 Nueva corrida
-              </Button>
+              </Link>
             </div>
           }
         />
@@ -195,9 +193,9 @@ export function NominaSection({
             title="Sin corridas todavía"
             description="Una corrida es la nómina de un periodo: la quincena, la semana, o un pago extraordinario como el aguinaldo."
             action={
-              <Button variant="primary" onClick={() => setAbierto(true)}>
+              <Link href="/facturas/nomina/nueva" className={buttonClass("primary")}>
                 Crear la primera
-              </Button>
+              </Link>
             }
           />
         ) : visibles.length === 0 ? (
@@ -325,18 +323,6 @@ export function NominaSection({
         />
       )}
 
-      {abierto && (
-        <CorridaFormModal
-          rfc={rfc}
-          nombres={nombres}
-          onClose={() => setAbierto(false)}
-          onCreada={(id) => {
-            setAbierto(false);
-            toast("Corrida creada");
-            router.push(`/facturas/nomina/${id}`);
-          }}
-        />
-      )}
     </div>
   );
 }

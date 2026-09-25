@@ -95,10 +95,11 @@ export const EMITIR = [
   { href: "/facturas/nueva?tipo=P", label: "Complemento de pago", detalle: "Cuando te pagan una PPD" },
   { href: "/facturas/nueva?tipo=E", label: "Nota de crédito", detalle: "Devoluciones y descuentos" },
   { href: "/facturas/nueva?tipo=T", label: "Carta porte", detalle: "Traslado o flete: te guiamos según tu papel" },
-  { href: "/facturas/nomina", label: "Recibo de nómina", detalle: "Se corre por periodo" },
+  { href: "/facturas/nomina/manual", label: "Recibo de nómina", detalle: "Uno, capturado aquí o desde una prenómina" },
+  { href: "/facturas/nomina/nueva", label: "Corrida de nómina", detalle: "Todo el periodo, calculado" },
   {
-    href: "/facturas/nueva?tipo=I&modo=plantilla",
+    href: "/facturas/nueva?modo=plantilla",
     label: "Subir plantilla de Excel",
-    detalle: "Muchas de golpe",
+    detalle: "Facturas, pagos o nómina de golpe",
   },
 ] as const;

@@ -8,8 +8,10 @@ import type { TipoComprobante } from "@/lib/timbrado";
 /*
    "¿Qué quieres hacer?": el menú que abre "Nueva factura". Todas las opciones
    pesan lo mismo aunque algunas vivan en otra sección (la nómina, el Excel):
-   para quien factura son igual de importantes. Es una cuadrícula de 3 × n, y
-   agregar una opción es agregar una entrada a OPCIONES.
+   para quien factura son igual de importantes, y todas entran al mismo
+   asistente por pasos. Van en dos grupos, "Uno a la vez" y "Muchos a la vez"
+   (mockup asistente-unificado, aprobado el 2026-09-25); agregar una opción es
+   agregar una entrada a OPCIONES con su grupo.
 */
 
 type Opcion = {
@@ -18,6 +20,9 @@ type Opcion = {
   descripcion: string;
   ejemplo: string;
   icono: keyof typeof ICONOS;
+  grupo: "uno" | "muchos";
+  /** Cuántos pasos tiene, cuando no es un comprobante del asistente de factura. */
+  pasos?: number;
   /** Qué hace al elegirla. */
   accion:
     | { tipo: "comprobante"; valor: TipoComprobante; cartaPorte?: boolean }
@@ -33,6 +38,7 @@ const OPCIONES: Opcion[] = [
     descripcion: "Cobras por una venta o un servicio.",
     ejemplo: "Vendiste dos laptops y su instalación.",
     icono: "factura",
+    grupo: "uno",
     accion: { tipo: "comprobante", valor: "I" },
   },
   {
@@ -41,6 +47,7 @@ const OPCIONES: Opcion[] = [
     descripcion: "Descuentas, devuelves o corriges una factura que ya emitiste.",
     ejemplo: "El cliente devolvió una pieza de una factura.",
     icono: "nota",
+    grupo: "uno",
     accion: { tipo: "comprobante", valor: "E" },
   },
   {
@@ -49,23 +56,8 @@ const OPCIONES: Opcion[] = [
     descripcion: "Registras un pago que recibiste de una factura a crédito (PPD).",
     ejemplo: "Tu cliente te transfirió el segundo pago.",
     icono: "pago",
+    grupo: "uno",
     accion: { tipo: "comprobante", valor: "P" },
-  },
-  {
-    clave: "N",
-    nombre: "Nómina",
-    descripcion: "Timbra los recibos de nómina de tus empleados.",
-    ejemplo: "La quincena del 1 al 15.",
-    icono: "nomina",
-    accion: { tipo: "enlace", href: "/facturas/nomina" },
-  },
-  {
-    clave: "X",
-    nombre: "Varias desde Excel",
-    descripcion: "Sube una plantilla con muchas facturas y se timbran en lote.",
-    ejemplo: "Las facturas de fin de mes, todas juntas.",
-    icono: "excel",
-    accion: { tipo: "plantilla" },
   },
   {
     clave: "T",
@@ -73,9 +65,45 @@ const OPCIONES: Opcion[] = [
     descripcion: "Para mover mercancía. Primero te preguntamos tu papel en el viaje y con eso sabemos qué timbrar.",
     ejemplo: "Llevas inventario a otra sucursal, o le cobras un flete a un cliente.",
     icono: "traslado",
+    grupo: "uno",
     accion: { tipo: "comprobante", valor: "T" },
   },
+  {
+    clave: "N",
+    nombre: "Recibo de nómina",
+    descripcion: "Un recibo para un empleado, capturado aquí o a partir de una prenómina.",
+    ejemplo: "El finiquito de alguien que se va.",
+    icono: "nomina",
+    grupo: "uno",
+    pasos: 6,
+    accion: { tipo: "enlace", href: "/facturas/nomina/manual" },
+  },
+  {
+    clave: "X",
+    nombre: "Desde Excel",
+    descripcion: "Sube una plantilla de facturas, complementos de pago o recibos de nómina y se timbran en lote.",
+    ejemplo: "Las facturas de fin de mes, todas juntas.",
+    icono: "excel",
+    grupo: "muchos",
+    pasos: 4,
+    accion: { tipo: "plantilla" },
+  },
+  {
+    clave: "C",
+    nombre: "Corrida de nómina",
+    descripcion: "Calcula el periodo para todos tus empleados y timbra los recibos juntos.",
+    ejemplo: "La quincena del 1 al 15.",
+    icono: "corrida",
+    grupo: "muchos",
+    pasos: 4,
+    accion: { tipo: "enlace", href: "/facturas/nomina/nueva" },
+  },
 ];
+
+const GRUPOS = [
+  { clave: "uno", titulo: "Uno a la vez" },
+  { clave: "muchos", titulo: "Muchos a la vez" },
+] as const;
 
 const ICONOS = {
   factura: (
@@ -100,6 +128,13 @@ const ICONOS = {
     <>
       <circle cx="10" cy="7" r="3" />
       <path d="M4 17c.8-3 3.2-4.5 6-4.5s5.2 1.5 6 4.5" />
+    </>
+  ),
+  corrida: (
+    <>
+      <circle cx="7.5" cy="7" r="2.5" />
+      <path d="M2.5 16.5c.6-2.6 2.5-4 5-4s4.4 1.4 5 4" />
+      <path d="M13 4.8a2.5 2.5 0 0 1 0 4.4M14.5 12.7c1.5.4 2.6 1.7 3 3.8" />
     </>
   ),
   excel: (
@@ -130,6 +165,7 @@ const COLOR_ICONO: Record<keyof typeof ICONOS, string> = {
   nota: "bg-violet-bg text-violet",
   pago: "bg-teal-bg text-teal",
   nomina: "bg-info-bg text-info",
+  corrida: "bg-info-bg text-info",
   excel: "bg-ok-bg text-ok",
   traslado: "bg-teal-bg text-teal",
   flete: "bg-warn-bg text-warn",
@@ -181,11 +217,25 @@ export function MenuTipos({
         <p className="text-[15px] text-ink-2">Elige el tipo de comprobante. Te guiamos paso a paso.</p>
       </div>
 
-      <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-        {OPCIONES.map((o) => (
-          <Tarjeta key={o.clave} opcion={o} onElegir={onElegir} onPlantilla={onPlantilla} />
-        ))}
-      </div>
+      {GRUPOS.map((g) => (
+        <div key={g.clave} className="space-y-2.5">
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.07em] text-ink-3">{g.titulo}</h2>
+          <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+            {OPCIONES.filter((o) => o.grupo === g.clave).map((o) => (
+              <Tarjeta key={o.clave} opcion={o} onElegir={onElegir} onPlantilla={onPlantilla} />
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <p className="rounded-xl border border-dashed border-line px-4 py-3 text-[13px] text-ink-3">
+        <span className="font-semibold text-ink-2">Autofactura</span> no está aquí porque no timbra al crearla: genera
+        la liga o el QR para que tu cliente se facture solo. Está en{" "}
+        <Link href="/facturas/autofacturas" className="font-semibold text-brand hover:underline">
+          Facturas → Autofacturas
+        </Link>
+        .
+      </p>
     </section>
   );
 }
@@ -203,19 +253,10 @@ function Tarjeta({
   const pie =
     o.accion.tipo === "comprobante"
       ? `${pasosPara(o.accion.valor, o.accion.cartaPorte).length} pasos`
-      : o.accion.tipo === "enlace"
-        ? "Tiene su propia sección"
-        : o.accion.tipo === "plantilla"
-          ? "Plantilla de Excel"
-          : o.accion.motivo;
-  const verbo =
-    o.accion.tipo === "comprobante"
-      ? "Empezar"
-      : o.accion.tipo === "enlace"
-        ? `Ir a ${o.nombre}`
-        : o.accion.tipo === "plantilla"
-          ? "Subir plantilla"
-          : "Próximamente";
+      : o.accion.tipo === "proximamente"
+        ? o.accion.motivo
+        : `${o.pasos} pasos`;
+  const verbo = o.accion.tipo === "proximamente" ? "Próximamente" : "Empezar";
 
   const clases = cx(
     "focus-brand flex h-full flex-col gap-3 rounded-2xl border p-5 text-left transition",

@@ -89,12 +89,10 @@ export const TIPOS_COMPROBANTE: OpcionTipo[] = [
     resumen: "Recibo de nómina",
     detalle: "Pago a empleados, con percepciones, deducciones e incidencias.",
     disponible: false,
-    // No se emite de una en una: la nómina se corre por periodo -- se le
-    // calcula a todos los empleados que entran y se timbran juntos -- y eso no
-    // cabe en un asistente que arma un solo comprobante.
-    motivo:
-      "Se corre por periodo, no de una en una: se le calcula a todos los empleados y se timbran juntos.",
-    hechoEn: { etiqueta: "Ir a Nómina", href: "/facturas/nomina" },
+    // Usa el mismo marco del asistente, pero con su propio estado: vive en
+    // /facturas/nomina/manual (un recibo) y /facturas/nomina/nueva (la corrida).
+    motivo: "Tiene su propio asistente: un recibo a la vez o la corrida del periodo.",
+    hechoEn: { etiqueta: "Recibo de nómina", href: "/facturas/nomina/manual" },
   },
   {
     value: "T",
