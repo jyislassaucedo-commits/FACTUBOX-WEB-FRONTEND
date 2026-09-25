@@ -16,6 +16,9 @@
    `Concepto.ComplementoConcepto.<Nodo>` para los de concepto (iedu).
 --------------------------------------------------------------------------- */
 
+import { COMPLEMENTOS_EXTRA, COMPLEMENTOS_PROXIMAMENTE } from "./complementosExtra";
+import { CURP, round2, sinVacios } from "./complementosUtil";
+
 export type CampoComplemento = {
   id: string;
   etiqueta: string;
@@ -24,6 +27,10 @@ export type CampoComplemento = {
   placeholder?: string;
   ayuda?: string;
   numerico?: boolean;
+  /** Fecha (AAAA-MM-DD) o fecha y hora: se captura con el selector del navegador. */
+  tipo?: "fecha" | "fechaHora";
+  /** Se guarda en mayúsculas (RFC, placas, claves). */
+  mayusculas?: boolean;
 };
 
 /** Datos capturados de un complemento: campo → valor. */
@@ -54,19 +61,6 @@ export type DefComplemento = {
   /** Revisiones propias además de los campos obligatorios. */
   revisar?: (datos: DatosComplemento) => ProblemaComplemento[];
 };
-
-const CURP = /^[A-Z][AEIOUX][A-Z]{2}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/;
-
-function round2(n: number) {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
-}
-
-/** Deja fuera los atributos vacíos: JSON_CFDI40 escribe un "" como atributo. */
-function sinVacios(obj: Record<string, string | undefined>) {
-  return Object.fromEntries(
-    Object.entries(obj).filter(([, v]) => v !== undefined && v.trim() !== "")
-  ) as Record<string, string>;
-}
 
 /** Importe del impuesto local: tasa en porcentaje sobre el SubTotal. */
 export function importeLocal(datos: DatosComplemento, subtotal: number) {
@@ -192,39 +186,8 @@ export const COMPLEMENTOS: DefComplemento[] = [
       ],
     }),
   },
-  {
-    id: "ine",
-    nombre: "INE",
-    descripcion: "Gastos de partidos políticos y campañas.",
-    disponible: false,
-    destino: "comprobante",
-    nodo: "INE",
-    campos: [],
-    porDefecto: {},
-    aJson: () => ({}),
-  },
-  {
-    id: "donat",
-    nombre: "Donatarias",
-    descripcion: "Donativos deducibles recibidos por una donataria autorizada.",
-    disponible: false,
-    destino: "comprobante",
-    nodo: "Donatarias",
-    campos: [],
-    porDefecto: {},
-    aJson: () => ({}),
-  },
-  {
-    id: "divisas",
-    nombre: "Compra venta de divisas",
-    descripcion: "Casas de cambio: si la operación es compra o venta.",
-    disponible: false,
-    destino: "comprobante",
-    nodo: "Divisas",
-    campos: [],
-    porDefecto: {},
-    aJson: () => ({}),
-  },
+  ...COMPLEMENTOS_EXTRA,
+  ...COMPLEMENTOS_PROXIMAMENTE,
 ];
 
 export function complementoDe(id: string) {

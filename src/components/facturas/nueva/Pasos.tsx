@@ -896,10 +896,13 @@ export function PasoComplementos({ borrador, set, problemas, mostrarErrores }: C
                         </Select>
                       ) : (
                         <Input
+                          type={campo.tipo === "fecha" ? "date" : campo.tipo === "fechaHora" ? "datetime-local" : undefined}
                           value={datos[campo.id] ?? ""}
                           placeholder={campo.placeholder}
                           inputMode={campo.numerico ? "decimal" : undefined}
-                          onChange={(e) => cambiar(def.id, campo.id, e.target.value)}
+                          onChange={(e) =>
+                            cambiar(def.id, campo.id, campo.mayusculas ? e.target.value.toUpperCase() : e.target.value)
+                          }
                           aria-invalid={Boolean(err(clave))}
                           className={campo.numerico ? "font-mono" : undefined}
                         />
