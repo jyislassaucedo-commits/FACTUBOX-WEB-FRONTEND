@@ -29,9 +29,11 @@ export default async function NuevaFacturaPage({
     prefactura?: string;
     rfc?: string;
     duplicar?: string;
+    /** Con modo=plantilla: qué trae el Excel (PREFACTURA, PAGO o NOMINA). */
+    plantilla?: string;
   }>;
 }) {
-  const [{ origenRfc, origenUuid, tipo, modo, prefactura, rfc, duplicar }, todos, timbres] = await Promise.all([
+  const [{ origenRfc, origenUuid, tipo, modo, prefactura, rfc, duplicar, plantilla }, todos, timbres] = await Promise.all([
     searchParams,
     getEmisores(),
     getTimbres(),
@@ -41,6 +43,8 @@ export default async function NuevaFacturaPage({
   // y lo demás se ignora, que es como si hubiera entrado sin atajo.
   const tipoInicial = tipo === "I" || tipo === "E" || tipo === "P" || tipo === "T" ? tipo : undefined;
   const modoInicial = modo === "plantilla" ? ("plantilla" as const) : undefined;
+  const plantillaInicial =
+    plantilla === "NOMINA" || plantilla === "PAGO" || plantilla === "PREFACTURA" ? plantilla : undefined;
 
   // Aquí —y SOLO aquí— se ocultan los emisores desactivados. El listado de
   // /emisores y los filtros de /facturas los siguen mostrando: desactivar
@@ -111,7 +115,7 @@ export default async function NuevaFacturaPage({
           // Ir de un tipo a otro desde el menú de la barra no cambia de página,
           // solo de ?tipo=: sin la key, el asistente se quedaba en el tipo
           // anterior porque su estado inicial ya se había tomado.
-          key={`${tipoInicial ?? ""}|${modoInicial ?? ""}|${origenUuid ?? ""}|${prefactura ?? ""}|${duplicar ?? ""}`}
+          key={`${tipoInicial ?? ""}|${modoInicial ?? ""}|${plantillaInicial ?? ""}|${origenUuid ?? ""}|${prefactura ?? ""}|${duplicar ?? ""}`}
           emisores={emisores}
           timbres={timbres}
           origenRfc={origenRfc}
@@ -120,6 +124,7 @@ export default async function NuevaFacturaPage({
           modoInicial={modoInicial}
           claves={claves}
           abierta={apertura?.ok ? apertura.abierta : undefined}
+          plantillaInicial={plantillaInicial}
         />
       )}
     </div>

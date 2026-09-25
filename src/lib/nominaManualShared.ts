@@ -363,14 +363,49 @@ export function normalizarForm(raw: unknown): NominaManualForm {
 /* Pasos y validación                                                         */
 /* -------------------------------------------------------------------------- */
 
-export type PasoManualId = "empleado" | "periodo" | "conceptos" | "extras" | "revision";
+export type PasoManualId = "emisor" | "empleado" | "periodo" | "conceptos" | "extras" | "revision";
 
-export const PASOS_MANUAL: Array<{ id: PasoManualId; titulo: string; descripcion: string }> = [
-  { id: "empleado", titulo: "Empleado", descripcion: "A quién se le paga" },
-  { id: "periodo", titulo: "Periodo", descripcion: "Fechas, días y serie" },
-  { id: "conceptos", titulo: "Conceptos", descripcion: "Percepciones, deducciones y otros pagos" },
-  { id: "extras", titulo: "Extras", descripcion: "Incapacidades, subcontratación, relacionados" },
-  { id: "revision", titulo: "Revisión", descripcion: "Revisar y timbrar" },
+/**
+ * Los pasos del recibo, con la pregunta y el "porqué" que muestra el
+ * asistente común (el mismo marco que la factura y la carta porte).
+ */
+export const PASOS_MANUAL: Array<{ id: PasoManualId; titulo: string; pregunta: string; porque: string }> = [
+  {
+    id: "emisor",
+    titulo: "Emisor y registro patronal",
+    pregunta: "¿Qué empresa paga?",
+    porque: "El recibo sale con su registro patronal y con una serie de tipo Nómina.",
+  },
+  {
+    id: "empleado",
+    titulo: "Empleado",
+    pregunta: "¿A quién le pagas?",
+    porque: "Elige de tus empleados guardados. Sus datos del IMSS ya están ahí; también aparecen las bajas, para el finiquito.",
+  },
+  {
+    id: "periodo",
+    titulo: "Periodo de pago",
+    pregunta: "¿Qué periodo le pagas?",
+    porque: "Las fechas y la periodicidad deciden la tarifa de ISR y los días pagados.",
+  },
+  {
+    id: "conceptos",
+    titulo: "Percepciones y deducciones",
+    pregunta: "¿Cuánto gana y qué se le descuenta?",
+    porque: "Cada renglón con su clave del SAT, y los otros pagos como el subsidio al empleo. A la derecha ves cómo queda el neto.",
+  },
+  {
+    id: "extras",
+    titulo: "Incapacidades y más",
+    pregunta: "¿Algo más en este recibo?",
+    porque: "Incapacidades, subcontratación o CFDI relacionados. La mayoría no lleva nada: sigue adelante.",
+  },
+  {
+    id: "revision",
+    titulo: "Revisar y timbrar",
+    pregunta: "Revisa y timbra",
+    porque: "Así se va a timbrar. Cualquier dato lo puedes cambiar desde el riel.",
+  },
 ];
 
 export type ProblemaManual = { paso: PasoManualId; campo: string; mensaje: string };
@@ -412,7 +447,7 @@ export function validarManual(form: NominaManualForm, empleado: Empleado | null)
   if (p.tipoNomina !== "E" && !/^\d{2}$/.test(p.periodicidad)) {
     add("periodo", "periodo.periodicidad", "Falta la periodicidad de pago.");
   }
-  if (!form.serie) add("periodo", "serie", "Elige la serie con la que se va a timbrar.");
+  if (!form.serie) add("emisor", "serie", "Elige la serie con la que se va a timbrar.");
 
   const renglon = (ref: string, r: { tipo: string; clave: string; concepto: string }) => {
     if (!/^\d{3}$/.test(r.tipo)) add("conceptos", `${ref}.tipo`, "Elige la clave del catálogo del SAT.");

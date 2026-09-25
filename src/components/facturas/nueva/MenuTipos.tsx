@@ -138,6 +138,13 @@ const COLOR_ICONO: Record<keyof typeof ICONOS, string> = {
 /** El ícono de un tipo de comprobante, el mismo del menú. */
 export function IconoTipo({ tipo, className }: { tipo: TipoComprobante; className?: string }) {
   const icono = tipo === "E" ? "nota" : tipo === "P" ? "pago" : tipo === "T" ? "traslado" : "factura";
+  return <IconoMenu icono={icono} className={className} />;
+}
+
+export type NombreIcono = keyof typeof ICONOS;
+
+/** Cualquier ícono del menú (nómina, Excel…), para el riel de los asistentes que no son un TipoComprobante. */
+export function IconoMenu({ icono, className }: { icono: NombreIcono; className?: string }) {
   return (
     <span
       className={cx("grid size-9 flex-none place-items-center rounded-[10px]", COLOR_ICONO[icono], className)}

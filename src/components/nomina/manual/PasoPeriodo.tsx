@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Button, Card, CardBody, CardHeader, Input, Note, Segmented, Select, useToast } from "@/components/ui";
 import { PERIODICIDADES_CORRIBLES, PERIODICIDAD_EXTRAORDINARIA, proponerPeriodo } from "@/lib/nominaShared";
 import {
@@ -17,11 +16,10 @@ import {
   type PropuestaRecibo,
 } from "@/lib/nominaManualShared";
 import type { Empleado } from "@/lib/empleados";
-import type { Serie } from "@/lib/series";
 import { Campo } from "./campos";
 
 /**
- * Las fechas del recibo, la serie y —si se quiere— un punto de partida.
+ * Las fechas del recibo y —si se quiere— un punto de partida.
  *
  * "Proponer desde su ficha" pide al motor de la corrida el caso base del
  * empleado (sueldo por días, ISR y subsidio) y lo vuelca a los conceptos. Es
@@ -33,7 +31,6 @@ export function PasoPeriodo({
   form,
   set,
   empleado,
-  series,
   problemas,
   mostrarErrores,
 }: {
@@ -41,7 +38,6 @@ export function PasoPeriodo({
   form: NominaManualForm;
   set: (cambio: Partial<NominaManualForm>) => void;
   empleado: Empleado | null;
-  series: Serie[];
   problemas: ProblemaManual[];
   mostrarErrores: boolean;
 }) {
@@ -148,24 +144,7 @@ export function PasoPeriodo({
                 ))}
               </Select>
             </Campo>
-            <Campo label="Serie" error={err("serie")} hint="Solo series de tipo Nómina.">
-              <Select value={form.serie} onChange={(e) => set({ serie: e.target.value })}>
-                <option value="">Selecciona…</option>
-                {series.map((s) => (
-                  <option key={s.Nombre} value={s.Nombre}>{s.Nombre}</option>
-                ))}
-              </Select>
-            </Campo>
           </div>
-          {series.length === 0 && (
-            <Note tone="warn">
-              No hay series de tipo Nómina. Crea una en{" "}
-              <Link href={`/emisores/${encodeURIComponent(rfc)}/series`} className="font-semibold underline">
-                Series y folios
-              </Link>
-              .
-            </Note>
-          )}
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Campo label="Del" error={err("periodo.fechaInicialPago")}>

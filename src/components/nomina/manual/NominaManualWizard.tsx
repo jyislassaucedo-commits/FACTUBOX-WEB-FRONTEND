@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Button, Card, CardBody, Note, Pill, Stepper, useToast, type PasoEstado } from "@/components/ui";
+import { Button, Card, CardBody, Note, Pill, useToast } from "@/components/ui";
+import { AsistentePasos, FaltanDatos } from "@/components/asistente/AsistentePasos";
+import type { EstadoPaso, PasoRiel } from "@/components/facturas/nueva/RielPasos";
+import { IconoMenu } from "@/components/facturas/nueva/MenuTipos";
 import { buttonClass } from "@/components/ui/styles";
 import { useProgresoManual } from "@/components/carga/useAccionServidor";
 import { RevisionSat } from "@/components/facturas/PasosNuevaFactura";
@@ -22,6 +25,7 @@ import type { ValidarResult } from "@/lib/timbrado";
 import type { ResultadoNominaManual } from "@/lib/nominaManual";
 import type { Empleado } from "@/lib/empleados";
 import type { Serie } from "@/lib/series";
+import { PasoEmisorNomina } from "./PasoEmisorNomina";
 import { PasoEmpleado } from "./PasoEmpleado";
 import { PasoPeriodo } from "./PasoPeriodo";
 import { PasoConceptos } from "./PasoConceptos";
@@ -45,6 +49,7 @@ type ResultadoRevision = { clave: string; datos: ValidarResult } | { clave: stri
 
 export function NominaManualWizard({
   rfc,
+  nombreEmisor,
   emisorToken,
   empleados,
   series,
@@ -53,6 +58,7 @@ export function NominaManualWizard({
   pasoInicial,
 }: {
   rfc: string;
+  nombreEmisor: string;
   emisorToken: string;
   /** Con las bajas incluidas: el finiquito es el caso de uso principal. */
   empleados: Empleado[];
@@ -73,7 +79,7 @@ export function NominaManualWizard({
   });
   const [idPrenomina, setIdPrenomina] = useState<string | null>(inicial?.id ?? null);
   const [nombre, setNombre] = useState(inicial?.nombre ?? "");
-  const [pasoActual, setPasoActual] = useState<PasoManualId>(pasoInicial ?? (inicial?.id ? "revision" : "empleado"));
+  const [pasoActual, setPasoActual] = useState<PasoManualId>(pasoInicial ?? (inicial?.id ? "revision" : "emisor"));
   const [intentados, setIntentados] = useState<PasoManualId[]>([]);
   const [guardando, setGuardando] = useState(false);
   const [modalNombre, setModalNombre] = useState(false);
@@ -252,13 +258,20 @@ export function NominaManualWizard({
 
   /* ---------------- Render ---------------- */
 
-  const pasosStepper = PASOS_MANUAL.map((p) => {
+  const pasosRiel: PasoRiel[] = PASOS_MANUAL.map((p, i) => {
     const n = problemasDe(p.id).length;
-    let estado: PasoEstado = "pendiente";
+    const visto = intentados.includes(p.id) || i < indiceActual;
+    let estado: EstadoPaso = "pendiente";
     if (p.id === pasoActual) estado = "actual";
-    else if (n > 0 && intentados.includes(p.id)) estado = "error";
-    else if (n === 0 && (intentados.includes(p.id) || PASOS_MANUAL.findIndex((x) => x.id === p.id) < indiceActual)) estado = "completo";
-    return { id: p.id, titulo: p.titulo, descripcion: p.descripcion, estado, faltantes: n };
+    else if (visto && n > 0) estado = "falta";
+    else if (visto) estado = "hecho";
+    return {
+      id: p.id,
+      titulo: p.titulo,
+      estado,
+      resumen: estado === "falta" ? `${n} por completar` : undefined,
+      habilitado: true,
+    };
   });
 
   const sugerido = empleado
@@ -268,6 +281,7 @@ export function NominaManualWizard({
     : "";
 
   const comun = { form, set, empleado, mostrarErrores: intentados.includes(pasoActual) };
+  const paso = PASOS_MANUAL[indiceActual];
 
   if (resultado?.ok) {
     return (
@@ -313,88 +327,84 @@ export function NominaManualWizard({
           <span aria-hidden> / </span>
           <Link href={`/facturas/nomina/prenominas`} className="hover:text-brand">Prenóminas</Link>
           <span aria-hidden> / </span>
-          <span className="font-medium text-ink-2">{nombre || "Nómina manual"}</span>
+          <span className="font-medium text-ink-2">{nombre || "Recibo de nómina"}</span>
         </span>
         <span className="flex items-center gap-2">
-          {idPrenomina && <Pill tone="brand">plantilla</Pill>}
+          {idPrenomina && <Pill tone="brand">prenómina</Pill>}
           {inicial?.vecesTimbrada ? <Pill tone="ok">timbrada {inicial.vecesTimbrada} {inicial.vecesTimbrada === 1 ? "vez" : "veces"}</Pill> : null}
           {sucio && idPrenomina && <Pill tone="warn">cambios sin guardar</Pill>}
         </span>
       </nav>
 
-      <Stepper pasos={pasosStepper} onIr={(id) => irA(id as PasoManualId)} />
-
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="min-w-0 space-y-4">
-          {pasoActual === "empleado" && (
-            <PasoEmpleado
-              rfc={rfc}
-              empleados={empleados}
-              idEmpleado={form.idEmpleado}
-              onElegir={(id) => set({ idEmpleado: id })}
-              mostrarErrores={comun.mostrarErrores}
-              registroPatronalEmpresa={registroPatronalEmpresa}
-            />
-          )}
-          {pasoActual === "periodo" && (
-            <PasoPeriodo rfc={rfc} {...comun} series={series} problemas={problemasDe("periodo")} />
-          )}
-          {pasoActual === "conceptos" && <PasoConceptos {...comun} problemas={problemasDe("conceptos")} />}
-          {pasoActual === "extras" && (
-            <PasoExtras form={form} set={set} problemas={problemasDe("extras")} mostrarErrores={comun.mostrarErrores} />
-          )}
-          {pasoActual === "revision" && (
-            <PasoRevision form={form} empleado={empleado} problemas={problemas} onIrA={irA} />
-          )}
-
-          {erroresServidor.length > 0 && (
-            <Note tone="danger" title="El servidor encontró problemas en el formulario">
-              <ul className="mt-1 space-y-1">
-                {erroresServidor.map((e, i) => (
-                  <li key={e.campo + i}>· <span className="font-mono text-[11.5px]">{e.campo}</span>: {e.mensaje}</li>
-                ))}
-              </ul>
-            </Note>
-          )}
-
-          {pasoActual === "revision" && todoValido && (
-            <RevisionSat
-              revisando={revisandoSat}
-              hayResultado={datosRevision !== null}
-              errores={datosRevision?.Validacion.Errores ?? []}
-              advertencias={datosRevision?.Validacion.Advertencias ?? []}
-              noRevisado={datosRevision?.Validacion.NoRevisado ?? []}
-              motivoFallo={falloRevision}
-              onReintentar={() => {
-                revisionEnVuelo.current = null;
-                setRevision(null);
-              }}
-            />
-          )}
-
-          {resultado && !resultado.ok && (
-            <Note tone="danger" title="No se timbró">
-              {resultado.error}
-              {idPrenomina && " Quedó anotado en la prenómina."}
-            </Note>
-          )}
-
-          <div className="sticky bottom-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface/90 px-4 py-3 shadow-raised backdrop-blur">
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" onClick={atras} disabled={indiceActual === 0 || enviando}>
-                Atrás
-              </Button>
-              <Button variant="secondary" onClick={pedirGuardar} disabled={guardando || enviando || !form.idEmpleado}>
-                {guardando ? "Guardando…" : idPrenomina ? "Guardar cambios" : "Guardar prenómina"}
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-3">
-              {problemasDe(pasoActual).length > 0 && (
-                <span className="text-[12px] font-medium text-warn">
-                  {problemasDe(pasoActual).length} dato{problemasDe(pasoActual).length === 1 ? "" : "s"} por completar
-                </span>
+      <AsistentePasos
+        riel={{
+          tipo: "Recibo de nómina",
+          folio: form.serie ? `Serie ${form.serie}` : "Sin serie todavía",
+          icono: <IconoMenu icono="nomina" />,
+          pasos: pasosRiel,
+          onIr: (id) => irA(id as PasoManualId),
+        }}
+        indice={indiceActual}
+        total={PASOS_MANUAL.length}
+        pregunta={paso.pregunta}
+        porque={paso.porque}
+        documento={
+          <ResumenTotales form={form} empleado={empleado} problemas={problemas} pasoActual={pasoActual} onIrA={irA} />
+        }
+        textoVerDocumento="Ver cómo va el recibo"
+        debajo={
+          <>
+            {erroresServidor.length > 0 && (
+              <Note tone="danger" title="El servidor encontró problemas en el formulario">
+                <ul className="mt-1 space-y-1">
+                  {erroresServidor.map((e, i) => (
+                    <li key={e.campo + i}>· <span className="font-mono text-[11.5px]">{e.campo}</span>: {e.mensaje}</li>
+                  ))}
+                </ul>
+              </Note>
+            )}
+            {pasoActual === "revision" && todoValido && (
+              <RevisionSat
+                revisando={revisandoSat}
+                hayResultado={datosRevision !== null}
+                errores={datosRevision?.Validacion.Errores ?? []}
+                advertencias={datosRevision?.Validacion.Advertencias ?? []}
+                noRevisado={datosRevision?.Validacion.NoRevisado ?? []}
+                motivoFallo={falloRevision}
+                onReintentar={() => {
+                  revisionEnVuelo.current = null;
+                  setRevision(null);
+                }}
+              />
+            )}
+            {resultado && !resultado.ok && (
+              <Note tone="danger" title="No se timbró">
+                {resultado.error}
+                {idPrenomina && " Quedó anotado en la prenómina."}
+              </Note>
+            )}
+          </>
+        }
+        pie={{
+          izquierda: (
+            <>
+              {indiceActual === 0 ? (
+                <Link href="/facturas/nueva" className={buttonClass("ghost")}>
+                  Cambiar tipo
+                </Link>
+              ) : (
+                <Button variant="ghost" onClick={atras} disabled={enviando}>
+                  Atrás
+                </Button>
               )}
+              <Button size="sm" variant="ghost" onClick={pedirGuardar} disabled={guardando || enviando || !form.idEmpleado}>
+                {guardando ? "Guardando…" : idPrenomina ? "Guardar cambios" : "Guardar como prenómina"}
+              </Button>
+            </>
+          ),
+          derecha: (
+            <>
+              {intentados.includes(pasoActual) && <FaltanDatos n={problemasDe(pasoActual).length} />}
               {pasoActual === "revision" ? (
                 <Button
                   variant="primary"
@@ -409,14 +419,41 @@ export function NominaManualWizard({
                   Continuar
                 </Button>
               )}
-            </div>
-          </div>
-        </div>
-
-        <aside className="xl:sticky xl:top-20">
-          <ResumenTotales form={form} empleado={empleado} problemas={problemas} pasoActual={pasoActual} onIrA={irA} />
-        </aside>
-      </div>
+            </>
+          ),
+        }}
+      >
+        {pasoActual === "emisor" && (
+          <PasoEmisorNomina
+            rfc={rfc}
+            nombreEmisor={nombreEmisor}
+            registroPatronalEmpresa={registroPatronalEmpresa}
+            series={series}
+            form={form}
+            set={set}
+            problemas={problemasDe("emisor")}
+            mostrarErrores={comun.mostrarErrores}
+          />
+        )}
+        {pasoActual === "empleado" && (
+          <PasoEmpleado
+            rfc={rfc}
+            empleados={empleados}
+            idEmpleado={form.idEmpleado}
+            onElegir={(id) => set({ idEmpleado: id })}
+            mostrarErrores={comun.mostrarErrores}
+            registroPatronalEmpresa={registroPatronalEmpresa}
+          />
+        )}
+        {pasoActual === "periodo" && <PasoPeriodo rfc={rfc} {...comun} problemas={problemasDe("periodo")} />}
+        {pasoActual === "conceptos" && <PasoConceptos {...comun} problemas={problemasDe("conceptos")} />}
+        {pasoActual === "extras" && (
+          <PasoExtras form={form} set={set} problemas={problemasDe("extras")} mostrarErrores={comun.mostrarErrores} />
+        )}
+        {pasoActual === "revision" && (
+          <PasoRevision form={form} empleado={empleado} problemas={problemas} onIrA={irA} />
+        )}
+      </AsistentePasos>
 
       {modalNombre && (
         <GuardarPrenominaModal

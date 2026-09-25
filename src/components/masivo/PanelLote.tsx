@@ -195,7 +195,9 @@ export function TablaItems({ items }: { items: ItemResultado[] }) {
               </Td>
               <Td>
                 {it.Errores.length > 0 ? (
-                  <ul className="space-y-0.5 text-[12px]">
+                  // Con ancho mínimo: en la columna del asistente el mensaje se
+                  // partía en una palabra por renglón. La tabla ya se desplaza.
+                  <ul className="min-w-[18rem] space-y-0.5 text-[12px]">
                     {it.Errores.map((err, i) => (
                       <li key={i}>
                         {/* La celda es lo que convierte el error en algo accionable:
@@ -207,7 +209,7 @@ export function TablaItems({ items }: { items: ItemResultado[] }) {
                     ))}
                   </ul>
                 ) : it.DescripError !== "-" ? (
-                  <span className="text-[12px]">{it.DescripError}</span>
+                  <span className="block min-w-[18rem] text-[12px]">{it.DescripError}</span>
                 ) : it.UUID ? (
                   <code className="text-[11.5px] text-muted">{it.UUID}</code>
                 ) : (

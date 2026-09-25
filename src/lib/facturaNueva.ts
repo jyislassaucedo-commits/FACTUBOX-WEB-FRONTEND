@@ -604,16 +604,6 @@ export function cambiosPorPapel(
  */
 export type ModoCaptura = "una" | "plantilla";
 
-/**
- * Qué plantilla de Excel corresponde a cada tipo de comprobante.
- *
- * Son las mismas tres que genera el escritorio. Nómina no aparece porque se
- * corre por periodo y tiene su propia pantalla.
- */
-export function tipoPlantillaDe(tipo: TipoComprobante): "PREFACTURA" | "PAGO" {
-  return tipo === "P" ? "PAGO" : "PREFACTURA";
-}
-
 /* -------------------------------------------------------------------------- */
 /* Validación                                                                 */
 /* -------------------------------------------------------------------------- */

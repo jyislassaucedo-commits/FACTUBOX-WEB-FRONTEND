@@ -1,7 +1,6 @@
 "use client";
 
 import { cx } from "@/components/ui";
-import type { PasoId } from "@/lib/facturaNueva";
 
 /*
    Los pasos del comprobante, uno por renglón. Es la lista de la propuesta B
@@ -15,7 +14,7 @@ import type { PasoId } from "@/lib/facturaNueva";
 export type EstadoPaso = "actual" | "hecho" | "falta" | "pendiente";
 
 export type PasoRiel = {
-  id: PasoId;
+  id: string;
   titulo: string;
   estado: EstadoPaso;
   /** Lo elegido en el paso, o cuánto falta. */
@@ -34,7 +33,7 @@ export function RielPasos({
   folio: string;
   icono: React.ReactNode;
   pasos: PasoRiel[];
-  onIr: (id: PasoId) => void;
+  onIr: (id: string) => void;
 }) {
   return (
     <nav

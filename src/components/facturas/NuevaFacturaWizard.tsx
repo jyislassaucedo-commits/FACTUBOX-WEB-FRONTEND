@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useProgresoManual } from "@/components/carga/useAccionServidor";
 import Link from "next/link";
-import { Button, Card, CardBody, Note, Segmented, buttonClass, cx, useToast } from "@/components/ui";
+import { Button, Card, CardBody, Note, buttonClass, useToast } from "@/components/ui";
 import { FORMAS_PAGO } from "@/lib/catalogosSat";
 import { money } from "@/lib/cfdi";
 import {
@@ -52,9 +52,10 @@ import { conceptosTraslado, nodoCartaPorte } from "@/lib/cartaPorte/construirJso
 import { claveLocal, llevaComplementoCP, totalesCartaPorte } from "@/lib/cartaPorte/borrador";
 import type { PrefacturaAbierta } from "@/lib/cartaPorte/leerJson";
 import { nombreMedio } from "@/lib/cartaPorteShared";
-import { RielPasos, type EstadoPaso, type PasoRiel } from "./nueva/RielPasos";
+import type { EstadoPaso, PasoRiel } from "./nueva/RielPasos";
+import { AsistentePasos, FaltanDatos } from "@/components/asistente/AsistentePasos";
 import { DocumentoPreview } from "./nueva/DocumentoPreview";
-import { ElegirModo } from "./ElegirModo";
+import { SubirLote, type TipoLote } from "@/components/masivo/AsistenteLote";
 import { RelacionarFacturaModal } from "./RelacionarFacturaModal";
 import { ReceptorFormModal } from "@/components/receptores/ReceptorFormModal";
 import type { Emisor } from "@/lib/emisores";
@@ -138,6 +139,7 @@ export function NuevaFacturaWizard({
   modoInicial,
   claves,
   abierta,
+  plantillaInicial,
 }: {
   emisores: Emisor[];
   timbres: Timbres | null;
@@ -151,6 +153,8 @@ export function NuevaFacturaWizard({
   claves?: { uuidLocal: string; idCCP: string };
   /** Una prefactura de la nube abierta (o duplicada) desde /facturas/prefacturas. */
   abierta?: PrefacturaAbierta;
+  /** Con modo "plantilla": qué trae el Excel (facturas, pagos o nómina). */
+  plantillaInicial?: TipoLote;
 }) {
   const toast = useToast();
 
@@ -179,8 +183,6 @@ export function NuevaFacturaWizard({
   );
   /** Pasos donde intentó avanzar: solo ahí se señalan los errores junto al campo. */
   const [intentados, setIntentados] = useState<PasoId[]>([]);
-  /** En pantallas medianas el comprobante se abre con un botón. */
-  const [docAbierto, setDocAbierto] = useState(false);
   /** El pago que se está armando en el paso "Pagos". "Pagar factura" entra con la factura ya elegida. */
   const [editorPago, setEditorPago] = useState<EditorAbierto | null>(
     tipoDeEntrada === "P" && origenUuid ? { id: null, preseleccion: [origenUuid] } : null
@@ -662,7 +664,6 @@ export function NuevaFacturaWizard({
     setVisitados((prev) => (prev.includes(pasoActual) ? prev : [...prev, pasoActual]));
     void guardarNube();
     setPasoActual(id);
-    setDocAbierto(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -866,29 +867,12 @@ export function NuevaFacturaWizard({
 
   if (enPlantilla) {
     return (
-      <div className="mx-auto max-w-3xl space-y-4">
-        <Button variant="ghost" onClick={volverAlMenu}>
-          ← Volver a “¿Qué quieres hacer?”
-        </Button>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-[13px] font-semibold text-ink-2">Plantilla de</span>
-          <Segmented<TipoComprobante>
-            ariaLabel="Qué plantilla"
-            value={borrador.tipo === "P" ? "P" : "I"}
-            onChange={(t) => set({ tipo: t, serie: "", folio: "" })}
-            options={[
-              { value: "I", label: "Facturas" },
-              { value: "P", label: "Complementos de pago" },
-            ]}
-          />
-        </div>
-        <ElegirModo
-          modo={modo}
-          onModo={(m) => (m === "una" ? empezar(borrador.tipo) : setModo(m))}
-          tipo={borrador.tipo}
-          rfcEmisor={borrador.rfcEmisor}
-        />
-      </div>
+      <SubirLote
+        emisores={emisores}
+        rfcInicial={borrador.rfcEmisor}
+        tipoInicial={plantillaInicial ?? (borrador.tipo === "P" ? "PAGO" : "PREFACTURA")}
+        onCambiarTipo={volverAlMenu}
+      />
     );
   }
 
@@ -919,17 +903,25 @@ export function NuevaFacturaWizard({
   );
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_380px]">
-      <RielPasos
-        tipo={borrador.tipo === "I" && conComplementoCP ? "Factura con carta porte" : NOMBRE_TIPO[borrador.tipo]}
-        folio={borrador.serie && borrador.folio ? `${borrador.serie}-${borrador.folio}` : "Sin folio todavía"}
-        icono={<IconoTipo tipo={borrador.tipo} />}
-        pasos={pasosRiel}
-        onIr={irA}
-      />
-
-      <div className="min-w-0 space-y-4">
-        {avisosPrefactura.length > 0 && (
+    <>
+    <AsistentePasos
+      riel={{
+        tipo: borrador.tipo === "I" && conComplementoCP ? "Factura con carta porte" : NOMBRE_TIPO[borrador.tipo],
+        folio: borrador.serie && borrador.folio ? `${borrador.serie}-${borrador.folio}` : "Sin folio todavía",
+        icono: <IconoTipo tipo={borrador.tipo} />,
+        pasos: pasosRiel,
+        onIr: (id) => irA(id as PasoId),
+      }}
+      indice={indiceActual}
+      total={pasos.length}
+      pregunta={cobraServicio ? "¿Cuánto cobras por tu servicio?" : paso.pregunta}
+      porque={
+        cobraServicio
+          ? "Con carta porte o como intermediario, lo que se cobra es el servicio de transporte, no la mercancía."
+          : paso.porque
+      }
+      arriba={
+        avisosPrefactura.length > 0 && (
           <Note tone="warn" title="Revisa esta prefactura antes de timbrar">
             <ul className="mt-1 list-disc space-y-0.5 pl-4">
               {avisosPrefactura.map((a) => (
@@ -940,112 +932,49 @@ export function NuevaFacturaWizard({
               Entendido
             </button>
           </Note>
-        )}
-        <Card>
-          <CardBody className="space-y-5">
-            <div className="space-y-1">
-              <p className="text-[12px] text-ink-3">
-                Paso {indiceActual + 1} de {pasos.length}
-              </p>
-              <h1 className="text-balance text-[22px] font-bold leading-tight tracking-[-0.015em] text-ink">
-                {cobraServicio ? "¿Cuánto cobras por tu servicio?" : paso.pregunta}
-              </h1>
-              <p className="text-pretty text-[14px] text-ink-2">
-                {cobraServicio
-                  ? "Con carta porte o como intermediario, lo que se cobra es el servicio de transporte, no la mercancía."
-                  : paso.porque}
-              </p>
-            </div>
-
-            {pasoActual === "emisor" && (
-              <PasoEmisor {...comun} emisores={emisores} series={series} cargandoSeries={cargandoSeries} />
-            )}
-            {pasoActual === "origen" && <PasoOrigen {...comun} onAbrirRelacion={() => setModalRelacion(true)} />}
-            {pasoActual === "receptor" && (
-              <PasoReceptor
-                {...comun}
-                receptores={receptores}
-                receptorActual={receptorActual}
-                cargandoReceptores={cargandoReceptores}
-                onNuevoReceptor={() => setModalReceptor(true)}
-              />
-            )}
-            {pasoActual === "conceptos" && <PasoConceptos {...comun} />}
-            {pasoActual === "pago" && <PasoFormaPago {...comun} />}
-            {pasoActual === "relacion" && (
-              <PasoRelacion {...comun} onAbrirRelacion={() => setModalRelacion(true)} />
-            )}
-            {pasoActual === "complementos" && <PasoComplementos {...comun} />}
-            {pasoActual === "pagos" && <PasoPagos {...comun} editor={editorPago} onEditor={setEditorPago} />}
-            {conCartaPorte && pasoActual === "cpPapel" && <PasoCpPapel {...comun} />}
-            {conCartaPorte && pasoActual === "cpGeneral" && <PasoCpGeneral {...comun} />}
-            {conCartaPorte && pasoActual === "cpTransporte" && <PasoCpTransporte {...comun} />}
-            {conCartaPorte && pasoActual === "cpFiguras" && <PasoCpFiguras {...comun} />}
-            {conCartaPorte && pasoActual === "cpUbicaciones" && <PasoCpUbicaciones {...comun} />}
-            {conCartaPorte && pasoActual === "cpMercancias" && <PasoCpMercancias {...comun} />}
-            {esRevision && borrador.tipo === "P" && (
-              <RevisionComplementos
-                borrador={borrador}
-                set={set}
-                mostrarErrores={intentados.includes("revision")}
-              />
-            )}
-            {esRevision && (
-              <PasoRevision
-                {...comun}
-                pasos={pasos}
-                problemasPorPaso={problemas}
-                filas={filasRevision}
-                onIrA={irA}
-              />
-            )}
-          </CardBody>
-        </Card>
-
-        {/* Revisión contra las reglas del SAT, hecha sobre el XML ya armado y
-            sellado: caza lo que solo se ve con el comprobante hecho. */}
-        {esRevision && todoValido && (
-          <RevisionSat
-            revisando={revisandoSat}
-            hayResultado={datosRevision !== null}
-            errores={erroresSat}
-            advertencias={advertenciasSat}
-            noRevisado={noRevisadoSat}
-            motivoFallo={falloRevision}
-            onReintentar={reintentarRevision}
-          />
-        )}
-        {esRevision && sinTimbres && (
-          <Note tone="danger" title="No te quedan timbres">
-            El timbrado consume un timbre de tu cuenta y tu saldo está en cero. Recarga con tu distribuidor antes de
-            emitir.
-          </Note>
-        )}
-        {esRevision && pocosTimbres && (
-          <Note tone="warn" title={`Te quedan ${timbres!.disponibles} timbres`}>
-            Este comprobante consumirá uno. Conviene recargar pronto.
-          </Note>
-        )}
-        {errorEnvio && (
-          <div id="error-timbrado">
-            <Note tone="danger" title="El SAT rechazó el comprobante">
-              {errorEnvio}
+        )
+      }
+      documento={documento}
+      debajo={
+        <>
+          {/* Revisión contra las reglas del SAT, hecha sobre el XML ya armado y
+              sellado: caza lo que solo se ve con el comprobante hecho. */}
+          {esRevision && todoValido && (
+            <RevisionSat
+              revisando={revisandoSat}
+              hayResultado={datosRevision !== null}
+              errores={erroresSat}
+              advertencias={advertenciasSat}
+              noRevisado={noRevisadoSat}
+              motivoFallo={falloRevision}
+              onReintentar={reintentarRevision}
+            />
+          )}
+          {esRevision && sinTimbres && (
+            <Note tone="danger" title="No te quedan timbres">
+              El timbrado consume un timbre de tu cuenta y tu saldo está en cero. Recarga con tu distribuidor antes de
+              emitir.
             </Note>
-          </div>
-        )}
-
-        {/* En pantallas donde no cabe la tercera columna, el comprobante se abre aquí. */}
-        <div className="xl:hidden">
-          <Button variant="secondary" onClick={() => setDocAbierto((v) => !v)} aria-expanded={docAbierto}>
-            {docAbierto ? "Ocultar el comprobante" : "Ver cómo va el comprobante"}
-          </Button>
-          {docAbierto && <div className="mt-3">{documento}</div>}
-        </div>
-
-        {/* ---------- Navegación ----------
-            Mientras se arma un pago, el editor trae sus propios botones. */}
-        <div hidden={editorPago !== null && pasoActual === "pagos"} className="sticky bottom-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface/90 px-4 py-3 shadow-raised backdrop-blur">
-          <div className="flex items-center gap-3">
+          )}
+          {esRevision && pocosTimbres && (
+            <Note tone="warn" title={`Te quedan ${timbres!.disponibles} timbres`}>
+              Este comprobante consumirá uno. Conviene recargar pronto.
+            </Note>
+          )}
+          {errorEnvio && (
+            <div id="error-timbrado">
+              <Note tone="danger" title="El SAT rechazó el comprobante">
+                {errorEnvio}
+              </Note>
+            </div>
+          )}
+        </>
+      }
+      pie={{
+        // Mientras se arma un pago, el editor trae sus propios botones.
+        oculto: editorPago !== null && pasoActual === "pagos",
+        izquierda: (
+          <>
             <Button variant="ghost" onClick={atras}>
               {indiceActual === 0 ? "Cambiar tipo" : "Atrás"}
             </Button>
@@ -1063,13 +992,11 @@ export function NuevaFacturaWizard({
                 </Button>
               </span>
             )}
-          </div>
-          <div className="flex items-center gap-3">
-            {intentados.includes(pasoActual) && problemasPaso.length > 0 && (
-              <span className="text-[12px] font-medium text-warn">
-                {problemasPaso.length} dato{problemasPaso.length === 1 ? "" : "s"} por completar
-              </span>
-            )}
+          </>
+        ),
+        derecha: (
+          <>
+            {intentados.includes(pasoActual) && <FaltanDatos n={problemasPaso.length} />}
             {esRevision ? (
               <Button
                 variant="primary"
@@ -1087,11 +1014,53 @@ export function NuevaFacturaWizard({
                 Continuar
               </Button>
             )}
-          </div>
-        </div>
-      </div>
-
-      <aside className={cx("hidden xl:sticky xl:top-20 xl:block")}>{documento}</aside>
+          </>
+        ),
+      }}
+    >
+      {pasoActual === "emisor" && (
+        <PasoEmisor {...comun} emisores={emisores} series={series} cargandoSeries={cargandoSeries} />
+      )}
+      {pasoActual === "origen" && <PasoOrigen {...comun} onAbrirRelacion={() => setModalRelacion(true)} />}
+      {pasoActual === "receptor" && (
+        <PasoReceptor
+          {...comun}
+          receptores={receptores}
+          receptorActual={receptorActual}
+          cargandoReceptores={cargandoReceptores}
+          onNuevoReceptor={() => setModalReceptor(true)}
+        />
+      )}
+      {pasoActual === "conceptos" && <PasoConceptos {...comun} />}
+      {pasoActual === "pago" && <PasoFormaPago {...comun} />}
+      {pasoActual === "relacion" && (
+        <PasoRelacion {...comun} onAbrirRelacion={() => setModalRelacion(true)} />
+      )}
+      {pasoActual === "complementos" && <PasoComplementos {...comun} />}
+      {pasoActual === "pagos" && <PasoPagos {...comun} editor={editorPago} onEditor={setEditorPago} />}
+      {conCartaPorte && pasoActual === "cpPapel" && <PasoCpPapel {...comun} />}
+      {conCartaPorte && pasoActual === "cpGeneral" && <PasoCpGeneral {...comun} />}
+      {conCartaPorte && pasoActual === "cpTransporte" && <PasoCpTransporte {...comun} />}
+      {conCartaPorte && pasoActual === "cpFiguras" && <PasoCpFiguras {...comun} />}
+      {conCartaPorte && pasoActual === "cpUbicaciones" && <PasoCpUbicaciones {...comun} />}
+      {conCartaPorte && pasoActual === "cpMercancias" && <PasoCpMercancias {...comun} />}
+      {esRevision && borrador.tipo === "P" && (
+        <RevisionComplementos
+          borrador={borrador}
+          set={set}
+          mostrarErrores={intentados.includes("revision")}
+        />
+      )}
+      {esRevision && (
+        <PasoRevision
+          {...comun}
+          pasos={pasos}
+          problemasPorPaso={problemas}
+          filas={filasRevision}
+          onIrA={irA}
+        />
+      )}
+    </AsistentePasos>
 
       {modalRelacion && (
         <RelacionarFacturaModal
@@ -1129,6 +1098,6 @@ export function NuevaFacturaWizard({
           }}
         />
       )}
-    </div>
+    </>
   );
 }

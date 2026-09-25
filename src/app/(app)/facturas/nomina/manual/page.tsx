@@ -8,7 +8,7 @@ import { getPrenomina } from "@/lib/nominaManual";
 import { getEmisores } from "@/lib/emisores";
 import { resolverRfcActivo, TODOS } from "@/lib/emisorActivo";
 import { EligeEmisor } from "@/components/facturas/EligeEmisor";
-import type { PasoManualId } from "@/lib/nominaManualShared";
+import { PASOS_MANUAL, type PasoManualId } from "@/lib/nominaManualShared";
 
 /**
  * El asistente de nómina manual. Vacío, o cargado desde una prenómina
@@ -53,7 +53,7 @@ export default async function NominaManualPage({
 
   const prenomina = resp !== null && resp.Error === "0" ? resp.Prenomina : null;
   const esCopia = duplicar === "1";
-  const pasos: PasoManualId[] = ["empleado", "periodo", "conceptos", "extras", "revision"];
+  const pasos: PasoManualId[] = PASOS_MANUAL.map((p) => p.id);
   const pasoInicial = pasos.includes(paso as PasoManualId) ? (paso as PasoManualId) : undefined;
 
   return (
@@ -62,6 +62,7 @@ export default async function NominaManualPage({
       // otra por la URL, en vez de arrastrar el estado de la anterior.
       key={`${idPrenomina ?? "nueva"}-${esCopia ? "copia" : "orig"}`}
       rfc={rfc}
+      nombreEmisor={contexto.emisor.Nombre || rfc}
       emisorToken={contexto.emisor.Token}
       empleados={empleados}
       series={contexto.series.filter((s) => s.Tipo === "N")}

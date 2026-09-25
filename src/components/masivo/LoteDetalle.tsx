@@ -9,6 +9,7 @@ import {
   type ResumenLote,
 } from "@/lib/masivoShared";
 import { PanelLote, guardarRespuesta } from "./PanelLote";
+import { RevisarLote } from "./AsistenteLote";
 
 /* ---------------------------------------------------------------------------
    Un lote, con su propia dirección.
@@ -114,6 +115,19 @@ export function LoteDetalle({
     await guardarRespuesta(res);
   }
 
+  if (lote.Estado === "REVISION") {
+    return (
+      <RevisarLote
+        lote={lote}
+        items={items}
+        ocupado={ocupado}
+        error={error}
+        onConfirmar={() => void accion("CONFIRMAR")}
+        onDescargarReporte={() => void descargar("REPORTE")}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       {error && (
@@ -126,7 +140,7 @@ export function LoteDetalle({
         lote={lote}
         items={items}
         conErrores={items.filter((i) => i.Errores.length > 0)}
-        enRevision={lote.Estado === "REVISION"}
+        enRevision={false}
         ocupado={ocupado}
         onAccion={accion}
         onDescargar={descargar}
