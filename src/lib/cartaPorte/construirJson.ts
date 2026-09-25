@@ -338,12 +338,13 @@ export function nodoCartaPorte(cp: CartaPorteBorrador): Nodo {
 
 /**
  * Los conceptos de un traslado: uno por mercancía, en ceros (el traslado no
- * cobra), como el escritorio: la clave de producto del CFDI, "MERC-0001".
+ * cobra), como el escritorio, con la clave de BienesTransp y "MERC-0001".
  */
 export function conceptosTraslado(cp: CartaPorteBorrador): Nodo[] {
   return cp.mercancias.map((m, i) =>
     limpiar({
-      ClaveProdServ: m.claveprod || m.claveprodcp,
+      // En un traslado el SAT exige la misma clave que BienesTransp.
+      ClaveProdServ: m.claveprodcp,
       NoIdentificacion: `MERC-${String(m.id ?? i + 1).padStart(4, "0")}`,
       Cantidad: fijo(num(m.cantidad), 2),
       ClaveUnidad: m.claveuni,

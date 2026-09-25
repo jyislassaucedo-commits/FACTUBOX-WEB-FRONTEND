@@ -14,7 +14,7 @@ import {
   borradorPara,
   calcularTotales,
   llevaGlobal,
-  pasosPara,
+  pasosDe,
   receptorDe,
   validar,
   type FacturaBorrador,
@@ -49,7 +49,7 @@ import {
   PasoCpUbicaciones,
 } from "./nueva/cartaPorte/PasosCartaPorte";
 import { conceptosTraslado, nodoCartaPorte } from "@/lib/cartaPorte/construirJson";
-import { claveLocal, totalesCartaPorte } from "@/lib/cartaPorte/borrador";
+import { claveLocal, llevaComplementoCP, totalesCartaPorte } from "@/lib/cartaPorte/borrador";
 import type { PrefacturaAbierta } from "@/lib/cartaPorte/leerJson";
 import { nombreMedio } from "@/lib/cartaPorteShared";
 import { RielPasos, type EstadoPaso, type PasoRiel } from "./nueva/RielPasos";
@@ -175,7 +175,7 @@ export function NuevaFacturaWizard({
   /** Pasos que el usuario ya dejó atrás: el riel los pinta en verde o con "!". */
   // Una prefactura abierta ya tiene sus pasos llenos: el riel deja ir a cualquiera.
   const [visitados, setVisitados] = useState<PasoId[]>(() =>
-    abierta ? pasosPara(abierta.borrador.tipo, abierta.borrador.cartaPorte !== null).map((p) => p.id).filter((id) => id !== "revision") : []
+    abierta ? pasosDe(abierta.borrador).map((p) => p.id).filter((id) => id !== "revision") : []
   );
   /** Pasos donde intentó avanzar: solo ahí se señalan los errores junto al campo. */
   const [intentados, setIntentados] = useState<PasoId[]>([]);
@@ -296,7 +296,11 @@ export function NuevaFacturaWizard({
   const emisorActual = emisores.find((e) => e.Rfc === borrador.rfcEmisor) ?? null;
 
   const conCartaPorte = borrador.cartaPorte !== null;
-  const pasos = pasosPara(borrador.tipo, conCartaPorte);
+  const conComplementoCP = llevaComplementoCP(borrador.cartaPorte);
+  const pasos = pasosDe(borrador);
+  // Transportista o intermediario: en Conceptos se cobra el servicio, no se vende mercancía.
+  const cobraServicio =
+    pasoActual === "conceptos" && borrador.tipo === "I" && borrador.cartaPorte !== null;
   const indiceActual = Math.max(0, pasos.findIndex((p) => p.id === pasoActual));
   const paso = pasos[indiceActual];
   const problemasPendientes = pasos.flatMap((p) => problemas[p.id]);
@@ -329,7 +333,7 @@ export function NuevaFacturaWizard({
       serie: b.serie,
       folio: b.folio,
       observaciones: b.observaciones.trim() || undefined,
-      cartaPorte: b.cartaPorte ? nodoCartaPorte(b.cartaPorte) : undefined,
+      cartaPorte: llevaComplementoCP(b.cartaPorte) ? nodoCartaPorte(b.cartaPorte) : undefined,
     };
 
     if (b.tipo === "T") {
@@ -798,24 +802,6 @@ export function NuevaFacturaWizard({
     );
   }
 
-  /** Después del traslado del intermediario: la factura de su servicio, con el concepto ya descrito. */
-  function facturaDelServicio() {
-    const origen = borrador.serie && borrador.folio ? ` ${borrador.serie}-${borrador.folio}` : "";
-    nuevaPrefactura();
-    setEmitidos(null);
-    setErrorEnvio(null);
-    setVisitados([]);
-    setIntentados([]);
-    setEditorPago(null);
-    setBorrador((prev) => {
-      const b = borradorPara("I", { rfcEmisor: prev.rfcEmisor });
-      return { ...b, conceptos: [{ ...b.conceptos[0], descripcion: `Servicio de intermediación del traslado${origen}` }] };
-    });
-    setPasoActual("emisor");
-    setEnMenu(false);
-    window.scrollTo({ top: 0 });
-  }
-
   function otroComprobante() {
     nuevaPrefactura();
     setEmitidos(null);
@@ -854,15 +840,6 @@ export function NuevaFacturaWizard({
         uuid={unico.UUID}
         fechaTimbrado={unico.FechaTimbrado}
         onOtra={otroComprobante}
-        siguiente={
-          borrador.tipo === "T" && borrador.cartaPorte?.papel === "intermediario"
-            ? {
-                texto: "Como intermediario, tu servicio se cobra aparte con una factura de ingreso a tu cliente.",
-                boton: "Hacer la factura de mi servicio",
-                onClick: facturaDelServicio,
-              }
-            : undefined
-        }
       />
     ) : (
       <ResultadoComplementos
@@ -944,7 +921,7 @@ export function NuevaFacturaWizard({
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_380px]">
       <RielPasos
-        tipo={borrador.tipo === "I" && conCartaPorte ? "Factura con carta porte" : NOMBRE_TIPO[borrador.tipo]}
+        tipo={borrador.tipo === "I" && conComplementoCP ? "Factura con carta porte" : NOMBRE_TIPO[borrador.tipo]}
         folio={borrador.serie && borrador.folio ? `${borrador.serie}-${borrador.folio}` : "Sin folio todavía"}
         icono={<IconoTipo tipo={borrador.tipo} />}
         pasos={pasosRiel}
@@ -971,9 +948,13 @@ export function NuevaFacturaWizard({
                 Paso {indiceActual + 1} de {pasos.length}
               </p>
               <h1 className="text-balance text-[22px] font-bold leading-tight tracking-[-0.015em] text-ink">
-                {paso.pregunta}
+                {cobraServicio ? "¿Cuánto cobras por tu servicio?" : paso.pregunta}
               </h1>
-              <p className="text-pretty text-[14px] text-ink-2">{paso.porque}</p>
+              <p className="text-pretty text-[14px] text-ink-2">
+                {cobraServicio
+                  ? "Con carta porte o como intermediario, lo que se cobra es el servicio de transporte, no la mercancía."
+                  : paso.porque}
+              </p>
             </div>
 
             {pasoActual === "emisor" && (

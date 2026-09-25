@@ -940,25 +940,29 @@ function EditorMercancia({ m, cp, onCerrar, onGuardar }: { m: MercanciaViaje; cp
 /* Tu papel en el viaje (primer paso)                                         */
 /* -------------------------------------------------------------------------- */
 
-/** Las mismas cuatro opciones del escritorio (frmInicioCartaPorte), explicadas. */
+/**
+ * Las cuatro opciones del escritorio (frmInicioCartaPorte), con lo que de
+ * verdad pide el SAT (RMF 2026 2.7.7.1.1 y 2.7.7.1.2; Instructivo CCP 3.1,
+ * Apéndices 1 y 5; Preguntas frecuentes 15 y 39).
+ */
 export const PAPELES: Array<{ id: PapelCP; titulo: string; que: string; timbras: string }> = [
   {
     id: "duenio",
     titulo: "Soy el dueño de la mercancía",
-    que: "Es tuya y la mueves tú, en tu unidad o en una rentada.",
+    que: "Es tuya y la mueves con tus propios medios: unidad propia o que tienes en arrendamiento.",
     timbras: "Traslado",
   },
   {
     id: "transportista",
     titulo: "Soy transportista",
-    que: "Te pagan por mover mercancía de otro: le cobras el flete.",
+    que: "Te pagan por mover mercancía de otro: le cobras el flete a tu cliente.",
     timbras: "Factura con carta porte",
   },
   {
     id: "intermediario",
     titulo: "Soy intermediario",
-    que: "Coordinas el envío, pero la mercancía no es tuya.",
-    timbras: "Traslado + tu servicio",
+    que: "Coordinas el envío de mercancía que no es tuya y cobras por ese servicio.",
+    timbras: "Factura de tu servicio",
   },
   {
     id: "blanco",
@@ -978,10 +982,15 @@ export function PasoCpPapel(c: Comun) {
     c.set(cambiosPorPapel(c.borrador, papel, extra));
   const ingreso = c.borrador.tipo === "I";
 
-  const figuras =
-    cp.papel === "intermediario" && !cp.transportePropio
-      ? "El operador del transportista que mueve la mercancía y, si aplica, el propietario o arrendador de la unidad."
-      : "El operador; y el propietario o arrendador si la unidad no es tuya.";
+  const soloServicio = cp.papel === "intermediario" && !cp.transportePropio;
+  const figuras = soloServicio
+    ? "Ninguna: esta factura no lleva carta porte."
+    : "El operador; y el propietario o arrendador si la unidad no es tuya.";
+  const cobro = !ingreso
+    ? "Nada: un traslado vale $0 y el receptor es tu propia empresa."
+    : soloServicio
+      ? "Tu servicio de intermediación (clave 78141501), a tu cliente."
+      : "El flete, con una clave de servicio de transporte (p. ej. 78101802), a quien te paga el viaje.";
 
   return (
     <div className="space-y-4">
@@ -1052,18 +1061,32 @@ export function PasoCpPapel(c: Comun) {
         <div>
           <p className="text-[12px] text-ink-3">Qué se cobra</p>
           <p className="mt-0.5 text-ink">
-            {ingreso ? "El flete, con sus impuestos, a quien te paga el viaje." : "Nada: un traslado vale $0 y el receptor es tu propia empresa."}
+            {cobro}
           </p>
         </div>
         <div>
           <p className="text-[12px] text-ink-3">Figuras que te vamos a pedir</p>
           <p className="mt-0.5 text-ink">{figuras}</p>
         </div>
-        {cp.papel === "intermediario" && (
+        {soloServicio && (
           <p className="text-ink-2 sm:col-span-2">
-            Al timbrar el traslado te ofrecemos hacer la factura de tu servicio de intermediación, con tu cliente como receptor, sin
-            salir de aquí.
+            Sin vehículos propios, tú solo facturas tu servicio, sin carta porte. La carta porte del viaje te la emite a ti el
+            transportista que contrataste, y con tu factura tu cliente puede deducir.
           </p>
+        )}
+        {cp.papel === "intermediario" && cp.transportePropio && (
+          <p className="text-ink-2 sm:col-span-2">
+            Con tu propio transporte cobras el servicio igual que un transportista: factura de ingreso con carta porte.
+          </p>
+        )}
+        {cp.papel === "duenio" && (
+          <ul className="list-disc space-y-1 pl-4 text-ink-2 sm:col-span-2">
+            <li>Si contrataste un flete, tú no timbras carta porte: te la emite el transportista en su factura.</li>
+            <li>
+              Si la mercancía ya la vendiste, la factura de la venta va aparte y sin carta porte. Puedes relacionarla con este
+              traslado en “CFDI relacionados” (tipo 05).
+            </li>
+          </ul>
         )}
       </div>
     </div>

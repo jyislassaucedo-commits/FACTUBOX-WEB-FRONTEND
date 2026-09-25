@@ -26,7 +26,7 @@ import {
   totalesLocales,
   type ComplementosBorrador,
 } from "@/lib/complementos";
-import { cartaPorteNueva, type CartaPorteBorrador, type PapelCP } from "@/lib/cartaPorte/borrador";
+import { cartaPorteNueva, llevaComplementoCP, type CartaPorteBorrador, type PapelCP } from "@/lib/cartaPorte/borrador";
 import { problemasCartaPorte, SIN_PROBLEMAS_CP } from "@/lib/cartaPorte/validar";
 
 export const RFC_PUBLICO_GENERAL = RECEPTOR_PUBLICO_GENERAL.Rfc;
@@ -495,19 +495,58 @@ export const PASOS_POR_TIPO: Record<TipoComprobante, Paso[]> = {
  * Los pasos de un comprobante. La factura con carta porte es la factura de
  * siempre con los pasos de la carta porte después de la forma de pago.
  */
-export function pasosPara(tipo: TipoComprobante, conCartaPorte = false): Paso[] {
+export function pasosPara(tipo: TipoComprobante, conCartaPorte = false, soloServicio = false): Paso[] {
   const pasos = PASOS_POR_TIPO[tipo];
   if (tipo === "T") return [PASO_PAPEL, ...pasos];
   if (tipo !== "I" || !conCartaPorte) return pasos;
+  // El intermediario sin transporte: su factura de servicio, sin los pasos del viaje.
+  if (soloServicio) return [PASO_PAPEL, ...pasos];
   const i = pasos.findIndex((p) => p.id === "pago");
   return [PASO_PAPEL, ...pasos.slice(0, i + 1), ...PASOS_CARTA_PORTE, ...pasos.slice(i + 1)];
 }
 
-/** Qué se timbra según el papel. En blanco lo elige el usuario (ingreso por omisión). */
+/** Los pasos de un borrador (con carta porte o sin ella). */
+export function pasosDe(b: Pick<FacturaBorrador, "tipo" | "cartaPorte">): Paso[] {
+  return pasosPara(b.tipo, b.cartaPorte !== null, b.cartaPorte !== null && !llevaComplementoCP(b.cartaPorte));
+}
+
+/**
+ * Qué se timbra según el papel (reglas SAT, RMF 2026 2.7.7.1.1 y 2.7.7.1.2):
+ * el dueño que mueve lo suyo con sus propios medios, un traslado; quien cobra
+ * por el transporte (transportista o intermediario), un ingreso. En blanco lo
+ * elige el usuario.
+ */
 export function tipoDePapel(papel: PapelCP, tipoEnBlanco: TipoComprobante = "I"): TipoComprobante {
-  if (papel === "transportista") return "I";
+  if (papel === "duenio") return "T";
   if (papel === "blanco") return tipoEnBlanco;
-  return "T";
+  return "I";
+}
+
+/** Claves de servicio de transporte que admite un ingreso con carta porte (Estándar CCP 3.1, §8.A). */
+export function esClaveServicioTransporte(clave: string) {
+  const n = Number(clave);
+  return (n >= 78101500 && n <= 78141501) || ["84121806", "92121800", "92121801", "92121802"].includes(clave);
+}
+
+const CONCEPTO_FLETE = "Flete";
+const CONCEPTO_INTERMEDIACION = "Servicio de intermediación de transporte de carga";
+
+/** El concepto con el que arranca cada papel que cobra; el usuario pone el precio. */
+function conceptosDePapel(papel: PapelCP, transportePropio: boolean, medio: string): ConceptoInput[] {
+  const servicio = { ...CONCEPTO_VACIO, claveUnidad: "E48", unidad: "Unidad de servicio" };
+  if (papel === "intermediario" && !transportePropio) {
+    return [{ ...servicio, claveProdServ: "78141501", descripcion: CONCEPTO_INTERMEDIACION }];
+  }
+  // 78101802: transporte de carga por carretera. En otros medios la clave la elige el usuario.
+  return [{ ...servicio, claveProdServ: medio === "01" ? "78101802" : "", descripcion: CONCEPTO_FLETE }];
+}
+
+/** ¿Los conceptos siguen como los dejamos (o vacíos)? Solo entonces se cambian solos. */
+function conceptosSinTocar(conceptos: ConceptoInput[]) {
+  if (conceptos.length === 0) return true;
+  if (conceptos.length > 1) return false;
+  const c = conceptos[0];
+  return !c.descripcion.trim() || ((c.descripcion === CONCEPTO_FLETE || c.descripcion === CONCEPTO_INTERMEDIACION) && !c.valorUnitario);
 }
 
 /**
@@ -527,7 +566,12 @@ export function cambiosPorPapel(
     papel,
     transportePropio: extra.transportePropio ?? b.cartaPorte.transportePropio,
   };
-  if (tipo === b.tipo) return { cartaPorte };
+  const cobra = papel === "transportista" || papel === "intermediario";
+  const conceptosNuevos =
+    tipo === "I" && cobra && conceptosSinTocar(b.conceptos)
+      ? { conceptos: conceptosDePapel(papel, cartaPorte.transportePropio, cartaPorte.medio) }
+      : {};
+  if (tipo === b.tipo) return { cartaPorte, ...conceptosNuevos };
   const base = borradorPara(tipo, { rfcEmisor: b.rfcEmisor }, true);
   return {
     tipo,
@@ -542,6 +586,7 @@ export function cambiosPorPapel(
     receptorRfc: base.receptorRfc,
     conceptos: base.conceptos,
     relacion: base.relacion,
+    ...conceptosNuevos,
   };
 }
 
@@ -781,6 +826,17 @@ export function validar(
 
   /* ---------- Conceptos ---------- */
   const conceptosP: Problema[] = esPago || esTraslado ? [] : problemasDeConceptos(borrador.conceptos);
+  // Un ingreso con carta porte cobra un servicio de transporte: otra clave el PAC la rechaza.
+  if (borrador.tipo === "I" && llevaComplementoCP(borrador.cartaPorte)) {
+    borrador.conceptos.forEach((c, i) => {
+      if (c.claveProdServ && !esClaveServicioTransporte(c.claveProdServ)) {
+        conceptosP.push({
+          campo: `concepto.${i}.claveProdServ`,
+          mensaje: `Con carta porte, el concepto cobra el servicio de transporte: usa una clave de flete (78101500 a 78141501, p. ej. 78101802), no ${c.claveProdServ}.`,
+        });
+      }
+    });
+  }
 
   /* ---------- Forma de pago ---------- */
   // Un CFDI de Pago no lleva FormaPago/MetodoPago a nivel comprobante (el SAT
@@ -833,7 +889,7 @@ export function validar(
     });
   }
 
-  const cp = borrador.cartaPorte ? problemasCartaPorte(borrador.cartaPorte) : SIN_PROBLEMAS_CP;
+  const cp = llevaComplementoCP(borrador.cartaPorte) ? problemasCartaPorte(borrador.cartaPorte) : SIN_PROBLEMAS_CP;
 
   return {
     ...cp,

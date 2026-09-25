@@ -115,6 +115,16 @@ export function generarIdCCP(): string {
   return /^[0-9A-F]{8}-/.test(guid) ? `CCC${guid.slice(3)}` : `CCC${guid.replace(/-/g, "").slice(0, 5)}-0000-4000-8000-000000000000`;
 }
 
+/**
+ * Si el comprobante lleva el complemento. El intermediario sin vehículos propios
+ * solo factura su servicio (Ingreso SIN carta porte, clave 78141501): la carta
+ * porte se la emite el transportista que contrató (Instructivo CCP 3.1,
+ * Apéndice 1 nota 9 y Apéndice 5; Preguntas frecuentes 39).
+ */
+export function llevaComplementoCP(cp: CartaPorteBorrador | null): cp is CartaPorteBorrador {
+  return cp !== null && !(cp.papel === "intermediario" && !cp.transportePropio);
+}
+
 export function cartaPorteNueva(): CartaPorteBorrador {
   return {
     version: "3.1",

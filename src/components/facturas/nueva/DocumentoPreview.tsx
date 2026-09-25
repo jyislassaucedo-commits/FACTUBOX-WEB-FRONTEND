@@ -19,7 +19,7 @@ import { activos } from "@/lib/complementos";
 import { cadena, complementosPorReceptor, folioDe, montoDe, ordenarPagos, totalEnPesos } from "@/lib/pagosCaptura";
 import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
-import { totalesCartaPorte, type CartaPorteBorrador } from "@/lib/cartaPorte/borrador";
+import { llevaComplementoCP, totalesCartaPorte, type CartaPorteBorrador } from "@/lib/cartaPorte/borrador";
 import { nombreMedio } from "@/lib/cartaPorteShared";
 
 /*
@@ -180,7 +180,7 @@ export function DocumentoPreview({
           </>
           )}
 
-          {b.cartaPorte && <SeccionCartaPorte cp={b.cartaPorte} pasoActual={pasoActual} lleno={lleno} titulos={titulos} />}
+          {llevaComplementoCP(b.cartaPorte) && <SeccionCartaPorte cp={b.cartaPorte} pasoActual={pasoActual} lleno={lleno} titulos={titulos} />}
 
           {(b.tipo === "I" || b.tipo === "T") && (
             <>
