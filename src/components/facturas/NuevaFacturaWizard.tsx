@@ -766,6 +766,12 @@ export function NuevaFacturaWizard({
       setErrorEnvio(
         lista.length > 1 ? lista.map((e) => `${e.etiqueta}: ${e.error}`).join(" · ") : (lista[0].error ?? null)
       );
+      // El motivo queda abajo del resumen, fuera de la vista: sin esto parecía
+      // que el botón no había hecho nada.
+      toast("No se timbró: el SAT lo rechazó. Abajo está el motivo", "danger");
+      requestAnimationFrame(() =>
+        document.getElementById("error-timbrado")?.scrollIntoView({ behavior: "smooth", block: "center" })
+      );
       return;
     }
     setEmitidos(lista);
@@ -1001,9 +1007,11 @@ export function NuevaFacturaWizard({
           </Note>
         )}
         {errorEnvio && (
-          <Note tone="danger" title="El SAT rechazó el comprobante">
-            {errorEnvio}
-          </Note>
+          <div id="error-timbrado">
+            <Note tone="danger" title="El SAT rechazó el comprobante">
+              {errorEnvio}
+            </Note>
+          </div>
         )}
 
         {/* En pantallas donde no cabe la tercera columna, el comprobante se abre aquí. */}
