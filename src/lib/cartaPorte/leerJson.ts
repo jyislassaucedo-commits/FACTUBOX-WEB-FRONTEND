@@ -26,7 +26,7 @@ import {
   type MedioCP,
   type TransporteCP,
 } from "@/lib/cartaPorteShared";
-import { COMPLEMENTOS, type ComplementosBorrador } from "@/lib/complementos";
+import { COMPLEMENTOS, datosDesdeJson, type ComplementosBorrador } from "@/lib/complementos";
 import { borradorPara, type FacturaBorrador } from "@/lib/facturaNueva";
 import type { ConceptoInput, ImpuestoConceptoInput, TipoComprobante } from "@/lib/timbrado";
 import {
@@ -466,20 +466,20 @@ function complementosDe(cfdi: Nodo, conceptos: Nodo[], avisos: Set<string>): Com
       if (l) out.leyendas = { disposicionFiscal: txt(l.disposicionFiscal), norma: txt(l.norma), textoLeyenda: txt(l.textoLeyenda) };
       continue;
     }
-    const def = COMPLEMENTOS.find((c) => c.nodo === nodo);
+    const def = COMPLEMENTOS.find((c) => c.nodo === nodo && c.destino === "comprobante");
+    if (def?.disponible) {
+      out[def.id] = datosDesdeJson(def, v);
+      continue;
+    }
     avisos.add(
       `Trae el complemento ${def?.nombre ?? nodo}, que la web todavía no edita: si la guardas o timbras desde aquí, se pierde. Ábrela en el escritorio para conservarlo.`
     );
   }
-  const iedu = conceptos.map((c) => obj(obj(c.ComplementoConcepto).instEducativas)).find((x) => Object.keys(x).length);
-  if (iedu) {
-    out.iedu = {
-      nombreAlumno: txt(iedu.nombreAlumno),
-      CURP: txt(iedu.CURP),
-      nivelEducativo: txt(iedu.nivelEducativo),
-      autRVOE: txt(iedu.autRVOE),
-      rfcPago: txt(iedu.rfcPago),
-    };
+  // Los de concepto (iedu, hidrocarburos, venta de vehículos): la web los
+  // aplica a todos los conceptos, así que se toma el primero que los traiga.
+  for (const def of COMPLEMENTOS.filter((c) => c.destino === "concepto" && c.disponible)) {
+    const nodo = conceptos.map((c) => obj(obj(c.ComplementoConcepto)[def.nodo])).find((x) => Object.keys(x).length);
+    if (nodo) out[def.id] = datosDesdeJson(def, nodo);
   }
   return out;
 }

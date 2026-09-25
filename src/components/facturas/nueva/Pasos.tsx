@@ -36,7 +36,8 @@ import {
   type PasoId,
   type Problema,
 } from "@/lib/facturaNueva";
-import { COMPLEMENTOS, activos } from "@/lib/complementos";
+import { COMPLEMENTOS, activos, campoVisible } from "@/lib/complementos";
+import { CampoGenerico, ListaComplemento } from "./ComplementoCampos";
 import type { Emisor } from "@/lib/emisores";
 import type { Receptor } from "@/lib/receptores";
 import type { Serie } from "@/lib/series";
@@ -878,40 +879,31 @@ export function PasoComplementos({ borrador, set, problemas, mostrarErrores }: C
                 <p className="mt-0.5 text-[12.5px] text-ink-3">Se agrega a cada concepto de la factura.</p>
               )}
               <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                {def.campos.map((campo) => {
-                  const clave = `complemento.${def.id}.${campo.id}`;
-                  return (
-                    <Field
+                {def.campos
+                  .filter((campo) => campoVisible(campo, datos))
+                  .map((campo) => (
+                    <CampoGenerico
                       key={campo.id}
-                      label={campo.obligatorio ? campo.etiqueta : `${campo.etiqueta} (opcional)`}
-                      hint={campo.ayuda}
-                    >
-                      {campo.opciones ? (
-                        <Select value={datos[campo.id] ?? ""} onChange={(e) => cambiar(def.id, campo.id, e.target.value)}>
-                          {campo.opciones.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <Input
-                          type={campo.tipo === "fecha" ? "date" : campo.tipo === "fechaHora" ? "datetime-local" : undefined}
-                          value={datos[campo.id] ?? ""}
-                          placeholder={campo.placeholder}
-                          inputMode={campo.numerico ? "decimal" : undefined}
-                          onChange={(e) =>
-                            cambiar(def.id, campo.id, campo.mayusculas ? e.target.value.toUpperCase() : e.target.value)
-                          }
-                          aria-invalid={Boolean(err(clave))}
-                          className={campo.numerico ? "font-mono" : undefined}
-                        />
-                      )}
-                      <FieldError mensaje={err(clave)} />
-                    </Field>
-                  );
-                })}
+                      campo={campo}
+                      valor={datos[campo.id] ?? ""}
+                      onCambio={(v) => cambiar(def.id, campo.id, v)}
+                      error={err(`complemento.${def.id}.${campo.id}`)}
+                    />
+                  ))}
               </div>
+              {(def.listas ?? [])
+                .filter((l) => !l.visible || l.visible(datos))
+                .map((l) => (
+                  <div key={l.id} className="mt-4">
+                    <ListaComplemento
+                      lista={l}
+                      datos={datos}
+                      onDatos={(d) => set({ complementos: { ...borrador.complementos, [def.id]: d } })}
+                      errorLista={err(`complemento.${def.id}.${l.id}`)}
+                      mostrarErrores={mostrarErrores}
+                    />
+                  </div>
+                ))}
             </div>
           );
         })

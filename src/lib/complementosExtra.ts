@@ -13,14 +13,20 @@
    los nodos hijos, no el de los atributos.
 
    Los que llevan listas repetibles (INE, Aerolíneas, Vales de despensa, Venta
-   de vehículos) siguen en COMPLEMENTOS_PROXIMAMENTE: necesitan un control de
-   renglones que primero hay que diseñar.
+   de vehículos) están en complementosListas.ts.
 --------------------------------------------------------------------------- */
 
 import type { DefComplemento, ProblemaComplemento } from "./complementos";
 import { ENTIDADES, RFC, importe, sinVacios } from "./complementosUtil";
 
 const t = (v: string | undefined) => (v ?? "").trim();
+/** Un valor del JSON leído de una prefactura, como texto. */
+const s = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v) : "").trim();
+/** Un nodo hijo del JSON (el primero, si viene como lista). */
+const hijo = (v: unknown): Record<string, unknown> => {
+  const o = Array.isArray(v) ? v[0] : v;
+  return o && typeof o === "object" ? (o as Record<string, unknown>) : {};
+};
 const T = (v: string | undefined) => t(v).toUpperCase();
 
 /** Revisa un campo contra una expresión; vacío no es error (eso lo ve `obligatorio`). */
@@ -155,6 +161,16 @@ export const COMPLEMENTOS_EXTRA: DefComplemento[] = [
     disponible: true,
     destino: "comprobante",
     nodo: "obrasarteantiguedades",
+    desdeJson: (v) => ({
+      TipoBien: s(v.TipoBien) || "01",
+      OtrosTipoBien: s(v.OtrosTipoBien),
+      TituloAdquirido: s(v.TituloAdquirido) || "01",
+      OtrosTituloAdquirido: s(v.OtrosTituloAdquirido),
+      FechaAdquisicion: s(v.FechaAdquisicion),
+      Caracteristicas: s(v["CaracterísticasDeObraoPieza"]) || "01",
+      Subtotal: s(v.Subtotal),
+      IVA: s(v.IVA),
+    }),
     campos: [
       {
         id: "TipoBien",
@@ -239,6 +255,24 @@ export const COMPLEMENTOS_EXTRA: DefComplemento[] = [
     disponible: true,
     destino: "comprobante",
     nodo: "VehiculoUsado",
+    desdeJson: (v) => {
+      const a = hijo(v.InformacionAduanera);
+      return {
+        montoAdquisicion: s(v.montoAdquisicion),
+        montoEnajenacion: s(v.montoEnajenacion),
+        valor: s(v.valor),
+        claveVehicular: s(v.claveVehicular),
+        marca: s(v.marca),
+        tipo: s(v.tipo),
+        modelo: s(v.modelo),
+        NIV: s(v.NIV),
+        numeroSerie: s(v.numeroSerie),
+        numeroMotor: s(v.numeroMotor),
+        numeroPedimento: s(a.numero),
+        fechaPedimento: s(a.fecha),
+        aduana: s(a.aduana),
+      };
+    },
     campos: [
       { id: "montoAdquisicion", etiqueta: "Monto de adquisición", obligatorio: true, numerico: true },
       { id: "montoEnajenacion", etiqueta: "Monto de enajenación", obligatorio: true, numerico: true },
@@ -309,6 +343,19 @@ export const COMPLEMENTOS_EXTRA: DefComplemento[] = [
     disponible: true,
     destino: "comprobante",
     nodo: "TuristaPasajeroExtranjero",
+    desdeJson: (v) => {
+      const d = hijo(v.datosTransito);
+      return {
+        fechadeTransito: s(v.fechadeTransito).slice(0, 16),
+        tipoTransito: s(v.tipoTransito) || "Arribo",
+        Via: s(d.Via) || "Aérea",
+        TipoId: s(d.TipoId),
+        NumeroId: s(d.NumeroId),
+        Nacionalidad: s(d.Nacionalidad),
+        EmpresaTransporte: s(d.EmpresaTransporte),
+        IdTransporte: s(d.IdTransporte),
+      };
+    },
     campos: [
       { id: "fechadeTransito", etiqueta: "Fecha y hora del tránsito", obligatorio: true, tipo: "fechaHora" },
       {
@@ -414,6 +461,26 @@ export const COMPLEMENTOS_EXTRA: DefComplemento[] = [
     disponible: true,
     destino: "comprobante",
     nodo: "certificadodedestruccion",
+    desdeJson: (v) => {
+      const h = hijo(v.VehiculoDestruido);
+      const a = hijo(v.InformacionAduanera);
+      return {
+        Serie: s(v.Serie) || "SERIE A",
+        NumFolDesVeh: s(v.NumFolDesVeh),
+        Marca: s(h.Marca),
+        TipooClase: s(h.TipooClase),
+        Anio: s(h["Año"]),
+        Modelo: s(h.Modelo),
+        NumPlacas: s(h.NumPlacas),
+        NumFolTarjCir: s(h.NumFolTarjCir),
+        NIV: s(h.NIV),
+        NumSerie: s(h.NumSerie),
+        NumMotor: s(h.NumMotor),
+        NumPedImp: s(a.NumPedImp),
+        FechaPedimento: s(a.Fecha),
+        Aduana: s(a.Aduana),
+      };
+    },
     campos: [
       {
         id: "Serie",
@@ -570,19 +637,3 @@ export const COMPLEMENTOS_EXTRA: DefComplemento[] = [
     }),
   },
 ];
-
-/** Los que necesitan listas repetibles: se ven como "Próximamente" hasta tener su control. */
-export const COMPLEMENTOS_PROXIMAMENTE: DefComplemento[] = [
-  { id: "ine", nombre: "INE", descripcion: "Gastos de partidos políticos y campañas." },
-  { id: "aerolineas", nombre: "Aerolíneas", descripcion: "TUA y otros cargos de boletos de avión." },
-  { id: "vales", nombre: "Vales de despensa", descripcion: "Monederos electrónicos: un renglón por empleado." },
-  { id: "ventavehiculos", nombre: "Venta de vehículos", descripcion: "Vehículos nuevos: clave vehicular, NIV y partes." },
-].map((c) => ({
-  ...c,
-  disponible: false,
-  destino: "comprobante" as const,
-  nodo: "",
-  campos: [],
-  porDefecto: {},
-  aJson: () => ({}),
-}));
