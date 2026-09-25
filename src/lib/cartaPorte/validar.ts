@@ -17,6 +17,14 @@ export type ProblemasCP = {
   cpMercancias: ProblemaCP[];
 };
 
+/**
+ * Tope de mercancías por comprobante. Medido en pruebas (sep-2026): el
+ * servidor tarda ~5.7 ms por mercancía en armar, sellar y revisar el CFDI;
+ * con 4,989 se fue a 28.5 s, y php-cgi corta a los 30 s. Con 2,000 queda
+ * margen para timbrar (que además espera al PAC).
+ */
+export const MAX_MERCANCIAS_COMPROBANTE = 2000;
+
 export const SIN_PROBLEMAS_CP: ProblemasCP = { cpGeneral: [], cpTransporte: [], cpFiguras: [], cpUbicaciones: [], cpMercancias: [] };
 
 /** Cuántas mercancías con el mismo problema se nombran antes de resumir. */
@@ -114,6 +122,7 @@ export function problemasCartaPorte(cp: CartaPorteBorrador): ProblemasCP {
     const sinReparto: number[] = [];
     const repartoMal: number[] = [];
     const sinDetalle: number[] = [];
+    const guiaMal: number[] = [];
     const ids = idsUbicacion(u);
     const variasParadas = origenes.length > 1 || destinos.length > 1;
     m.forEach((x, i) => {
@@ -129,7 +138,15 @@ export function problemasCartaPorte(cp: CartaPorteBorrador): ProblemasCP {
         }
       }
       if (cp.medio === "02" && !x.detalle) sinDetalle.push(i);
+      if (x.guias.some((g) => g.numero.trim().length < 10 || g.numero.trim().length > 30)) guiaMal.push(i);
     });
+    if (m.length > MAX_MERCANCIAS_COMPROBANTE) {
+      p.cpMercancias.push({
+        campo: "mercancias",
+        mensaje: `Son ${m.length.toLocaleString("es-MX")} mercancías y un comprobante aguanta hasta ${MAX_MERCANCIAS_COMPROBANTE.toLocaleString("es-MX")}: con más, el servidor no alcanza a timbrarlo. Divide el viaje en varias cartas porte.`,
+      });
+    }
+    if (guiaMal.length) p.cpMercancias.push({ campo: "mercancias", mensaje: `El número de guía de la mercancía ${resumirFilas(guiaMal)} debe tener de 10 a 30 caracteres.` });
     if (incompletas.length) p.cpMercancias.push({ campo: "mercancias", mensaje: `A la mercancía ${resumirFilas(incompletas)} le falta clave, descripción o unidad.` });
     if (sinCantidad.length) p.cpMercancias.push({ campo: "mercancias", mensaje: `La mercancía ${resumirFilas(sinCantidad)} no tiene cantidad.` });
     if (sinPeso.length) p.cpMercancias.push({ campo: "mercancias", mensaje: `La mercancía ${resumirFilas(sinPeso)} no tiene peso.` });

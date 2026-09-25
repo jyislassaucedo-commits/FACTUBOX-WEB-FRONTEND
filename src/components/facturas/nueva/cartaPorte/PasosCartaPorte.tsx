@@ -11,7 +11,8 @@
 */
 
 import { useEffect, useMemo, useState } from "react";
-import { Button, Field, FieldError, Note, Pill, SearchInput, Segmented, cx, inputClass } from "@/components/ui";
+import { Button, Field, FieldError, Note, Pill, SearchInput, Segmented, cx, inputClass, useToast } from "@/components/ui";
+import { ImportarMercanciasModal } from "@/components/cartaPorte/ImportarMercanciasModal";
 import { SelectTablaSat } from "@/components/cartaPorte/catalogos/CamposCP";
 import { TransportePanel } from "@/components/cartaPorte/catalogos/Transportes";
 import { FiguraForm } from "@/components/cartaPorte/catalogos/Figuras";
@@ -607,8 +608,10 @@ export function PasoCpUbicaciones(c: Comun) {
 
 const POR_PAGINA = 50;
 
-export function PasoCpMercancias({ onImportar, ...c }: Comun & { onImportar?: () => void }) {
+export function PasoCpMercancias(c: Comun) {
   const { cp, setCP } = useCP(c);
+  const toast = useToast();
+  const [importando, setImportando] = useState(false);
   const rfc = c.borrador.rfcEmisor;
   const [q, setQ] = useState("");
   const [pagina, setPagina] = useState(1);
@@ -695,11 +698,9 @@ export function PasoCpMercancias({ onImportar, ...c }: Comun & { onImportar?: ()
         <Button variant={agregando ? "secondary" : "ghost"} onClick={() => setAgregando((v) => !v)}>
           Agregar mercancía guardada
         </Button>
-        {onImportar && (
-          <Button variant="ghost" onClick={onImportar}>
-            Importar desde Excel
-          </Button>
-        )}
+        <Button variant="ghost" onClick={() => setImportando(true)}>
+          Importar desde Excel
+        </Button>
         <Button variant="ghost" onClick={() => setNueva(true)}>
           Registrar una mercancía nueva
         </Button>
@@ -721,6 +722,25 @@ export function PasoCpMercancias({ onImportar, ...c }: Comun & { onImportar?: ()
             )}
           />
         </div>
+      )}
+      {importando && (
+        <ImportarMercanciasModal
+          modo="cartaPorte"
+          rfc={rfc}
+          idsParadas={idsUbicacion(cp.ubicaciones)}
+          yaHay={cp.mercancias.length}
+          onCerrar={() => setImportando(false)}
+          onImportadas={(mercancias, nuevasCatalogo) => {
+            setCP({ mercancias: [...cp.mercancias, ...mercancias] });
+            setImportando(false);
+            setPagina(1);
+            if (nuevasCatalogo !== null) setVersion((v) => v + 1);
+            toast(
+              `${mercancias.length.toLocaleString("es-MX")} mercancía${mercancias.length === 1 ? "" : "s"} importada${mercancias.length === 1 ? "" : "s"}` +
+                (nuevasCatalogo ? ` · ${nuevasCatalogo.toLocaleString("es-MX")} nuevas en el catálogo` : "")
+            );
+          }}
+        />
       )}
       {nueva && (
         <MercanciaForm

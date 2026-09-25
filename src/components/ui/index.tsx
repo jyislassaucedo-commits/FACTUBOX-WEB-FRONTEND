@@ -444,12 +444,15 @@ export function Modal({
   footer,
   children,
   wide,
+  xl,
 }: {
   title: React.ReactNode;
   onClose: () => void;
   footer?: React.ReactNode;
   children: React.ReactNode;
   wide?: boolean;
+  /** Más ancho que wide: tablas grandes (la importación de mercancías). */
+  xl?: boolean;
 }) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
@@ -489,7 +492,7 @@ export function Modal({
         aria-labelledby={titleId}
         className={cx(
           "w-full rounded-2xl border border-line bg-surface shadow-pop outline-none",
-          wide ? "max-w-3xl" : "max-w-lg"
+          xl ? "max-w-5xl" : wide ? "max-w-3xl" : "max-w-lg"
         )}
       >
         <div className="flex items-center justify-between border-b border-line-2 px-5 py-4">

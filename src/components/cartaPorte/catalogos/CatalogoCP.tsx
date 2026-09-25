@@ -46,6 +46,7 @@ export function CatalogoCP<T extends RegistroCP>({
   fila,
   nombreDe,
   Formulario,
+  accionExtra,
 }: {
   rfc: string;
   entidad: EntidadCP;
@@ -61,6 +62,8 @@ export function CatalogoCP<T extends RegistroCP>({
   /** Cómo se llama el registro en los avisos ("Kenworth T680"). */
   nombreDe: (r: T) => string;
   Formulario: React.ComponentType<FormularioCPProps<T>>;
+  /** Otro botón junto al de crear (Importar desde Excel); recibe cómo recargar la lista. */
+  accionExtra?: (recargar: () => void) => React.ReactNode;
 }) {
   const toast = useToast();
   const [datos, setDatos] = useState<PaginaCP<T>>(inicial);
@@ -126,9 +129,12 @@ export function CatalogoCP<T extends RegistroCP>({
           title={titulo}
           description={descripcion}
           action={
-            <Button variant="primary" onClick={() => setEditando(null)}>
-              {nuevo}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {accionExtra?.(() => cargar(q.trim(), pagina))}
+              <Button variant="primary" onClick={() => setEditando(null)}>
+                {nuevo}
+              </Button>
+            </div>
           }
         />
         <Toolbar>

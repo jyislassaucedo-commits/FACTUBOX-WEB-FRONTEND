@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Modal, Note, Pill, Segmented, Td } from "@/components/ui";
+import { Button, Modal, Note, Pill, Segmented, Td, useToast } from "@/components/ui";
+import { ImportarMercanciasModal } from "@/components/cartaPorte/ImportarMercanciasModal";
 import { BuscadorClaveSat } from "@/components/facturas/BuscadorClaveSat";
 import { CatalogoCP, guardarCP, type FormularioCPProps } from "./CatalogoCP";
 import { BuscadorTablaSat, CampoCP, SelectTablaSat, TextoCP } from "./CamposCP";
@@ -16,7 +17,7 @@ export function MercanciasSection({ rfc, inicial }: { rfc: string; inicial: Pagi
       titulo="Mercancías"
       descripcion="Lo que transportas, con su clave de carta porte y su peso por unidad."
       nuevo="Nueva mercancía"
-      vacio={{ titulo: "Sin mercancías todavía", descripcion: "Captúralas una por una o impórtalas desde Excel al hacer una carta porte." }}
+      vacio={{ titulo: "Sin mercancías todavía", descripcion: "Captúralas una por una o impórtalas desde la plantilla de Excel." }}
       encabezados={["Descripción", "Clave carta porte", "Unidad", "Peso por unidad", "Peligrosa"]}
       nombreDe={(m) => m.descripcion.slice(0, 60)}
       fila={(m) => (
@@ -31,7 +32,36 @@ export function MercanciasSection({ rfc, inicial }: { rfc: string; inicial: Pagi
         </>
       )}
       Formulario={MercanciaForm}
+      accionExtra={(recargar) => <ImportarAlCatalogo rfc={rfc} recargar={recargar} />}
     />
+  );
+}
+
+function ImportarAlCatalogo({ rfc, recargar }: { rfc: string; recargar: () => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const toast = useToast();
+  return (
+    <>
+      <Button variant="secondary" onClick={() => setAbierto(true)}>
+        Importar desde Excel
+      </Button>
+      {abierto && (
+        <ImportarMercanciasModal
+          modo="catalogo"
+          rfc={rfc}
+          onCerrar={() => setAbierto(false)}
+          onGuardadas={(total, nuevas) => {
+            setAbierto(false);
+            recargar();
+            const actualizadas = total - nuevas;
+            toast(
+              `${nuevas.toLocaleString("es-MX")} mercancía${nuevas === 1 ? "" : "s"} nueva${nuevas === 1 ? "" : "s"}` +
+                (actualizadas > 0 ? ` · ${actualizadas.toLocaleString("es-MX")} ya estaban y se actualizaron` : "")
+            );
+          }}
+        />
+      )}
+    </>
   );
 }
 
