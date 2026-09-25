@@ -132,9 +132,10 @@ const INE: DefComplemento = {
         },
       ],
       porDefecto: { ClaveEntidad: "", Ambito: "", Contabilidades: "" },
-      resumen: (f) => [
+      // En Ordinario el ámbito no se manda: tampoco se enseña.
+      resumen: (f, d) => [
         f.ClaveEntidad ? `${f.ClaveEntidad} - ${nombreEntidad(f.ClaveEntidad)}` : "Sin entidad",
-        [f.Ambito, `${idsDe(f.Contabilidades).length} contabilidad${idsDe(f.Contabilidades).length === 1 ? "" : "es"}`]
+        [esOrdinario(d) ? "" : f.Ambito, `${idsDe(f.Contabilidades).length} contabilidad${idsDe(f.Contabilidades).length === 1 ? "" : "es"}`]
           .filter(Boolean)
           .join(" · "),
       ],

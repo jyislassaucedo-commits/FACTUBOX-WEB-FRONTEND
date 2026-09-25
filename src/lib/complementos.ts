@@ -62,7 +62,7 @@ export type DefLista = {
   campos: CampoComplemento[];
   porDefecto: FilaComplemento;
   /** Lo que se ve de cada renglón en la lista: título y detalle. */
-  resumen: (fila: FilaComplemento) => [string, string];
+  resumen: (fila: FilaComplemento, datos: DatosComplemento) => [string, string];
   /** Si los renglones suman un importe, cuánto aporta cada uno. */
   monto?: (fila: FilaComplemento) => number;
   /** Mínimo de renglones: fijo o según la cabecera. */

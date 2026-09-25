@@ -35,8 +35,14 @@ export function CampoGenerico({
   onCambio: (v: string) => void;
   error?: string | null;
 }) {
+  // Un catálogo sin opción vacía siempre trae un valor: no tiene caso decir
+  // que es opcional.
+  const siempreLleno = campo.opciones !== undefined && !campo.opciones.some((o) => o.value === "");
   return (
-    <Field label={campo.obligatorio ? campo.etiqueta : `${campo.etiqueta} (opcional)`} hint={campo.ayuda}>
+    <Field
+      label={campo.obligatorio || siempreLleno ? campo.etiqueta : `${campo.etiqueta} (opcional)`}
+      hint={campo.ayuda}
+    >
       {campo.opciones ? (
         <Select value={valor} onChange={(e) => onCambio(e.target.value)} aria-invalid={Boolean(error)}>
           {campo.opciones.map((o) => (
@@ -178,7 +184,7 @@ export function ListaComplemento({
       {filas.length > 0 && (
         <ul className="overflow-hidden rounded-xl border border-line">
           {filas.map((f, i) => {
-            const [titulo, detalle] = lista.resumen(f);
+            const [titulo, detalle] = lista.resumen(f, datos);
             const faltan = problemasDeFila(lista, f, datos).length;
             const activo = enEdicion?.indice === i;
             return (
