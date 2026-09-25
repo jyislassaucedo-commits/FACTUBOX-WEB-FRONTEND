@@ -20,6 +20,7 @@ import { UbicacionForm } from "@/components/cartaPorte/catalogos/Ubicaciones";
 import { MercanciaForm } from "@/components/cartaPorte/catalogos/Mercancias";
 import { useTablaSat } from "@/lib/useTablaSat";
 import type { Comun } from "../Pasos";
+import { cambiosPorPapel } from "@/lib/facturaNueva";
 import {
   MEDIOS_CP,
   nombreMedio,
@@ -39,6 +40,7 @@ import {
   totalesCartaPorte,
   type CartaPorteBorrador,
   type MercanciaViaje,
+  type PapelCP,
   type UbicacionViaje,
 } from "@/lib/cartaPorte/borrador";
 
@@ -929,6 +931,140 @@ function EditorMercancia({ m, cp, onCerrar, onGuardar }: { m: MercanciaViaje; cp
             </Button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tu papel en el viaje (primer paso)                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Las mismas cuatro opciones del escritorio (frmInicioCartaPorte), explicadas. */
+export const PAPELES: Array<{ id: PapelCP; titulo: string; que: string; timbras: string }> = [
+  {
+    id: "duenio",
+    titulo: "Soy el dueño de la mercancía",
+    que: "Es tuya y la mueves tú, en tu unidad o en una rentada.",
+    timbras: "Traslado",
+  },
+  {
+    id: "transportista",
+    titulo: "Soy transportista",
+    que: "Te pagan por mover mercancía de otro: le cobras el flete.",
+    timbras: "Factura con carta porte",
+  },
+  {
+    id: "intermediario",
+    titulo: "Soy intermediario",
+    que: "Coordinas el envío, pero la mercancía no es tuya.",
+    timbras: "Traslado + tu servicio",
+  },
+  {
+    id: "blanco",
+    titulo: "Carta porte en blanco",
+    que: "Eliges el tipo de comprobante tú; no se te guía.",
+    timbras: "Tú eliges",
+  },
+];
+
+export function nombrePapel(p: PapelCP) {
+  return PAPELES.find((x) => x.id === p)?.titulo.replace(/^Soy (el )?/, "").replace(/^./, (l) => l.toUpperCase()) ?? p;
+}
+
+export function PasoCpPapel(c: Comun) {
+  const { cp } = useCP(c);
+  const elegir = (papel: PapelCP, extra: Parameters<typeof cambiosPorPapel>[2] = {}) =>
+    c.set(cambiosPorPapel(c.borrador, papel, extra));
+  const ingreso = c.borrador.tipo === "I";
+
+  const figuras =
+    cp.papel === "intermediario" && !cp.transportePropio
+      ? "El operador del transportista que mueve la mercancía y, si aplica, el propietario o arrendador de la unidad."
+      : "El operador; y el propietario o arrendador si la unidad no es tuya.";
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2.5" role="radiogroup" aria-label="Tu papel en el viaje">
+        {PAPELES.map((p) => {
+          const activo = cp.papel === p.id;
+          return (
+            <div key={p.id}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={activo}
+                onClick={() => elegir(p.id)}
+                className={cx(
+                  "focus-brand grid w-full grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-3.5 rounded-xl border px-4 py-3.5 text-left transition",
+                  activo ? "border-brand bg-brand-050" : "border-line bg-surface hover:border-ink-4"
+                )}
+              >
+                <span
+                  className={cx(
+                    "mt-0.5 grid h-[18px] w-[18px] place-items-center rounded-full border-[1.5px]",
+                    activo ? "border-brand" : "border-ink-4"
+                  )}
+                >
+                  {activo && <span className="h-2 w-2 rounded-full bg-brand" />}
+                </span>
+                <span>
+                  <span className="block text-[14.5px] font-semibold text-ink">{p.titulo}</span>
+                  <span className="mt-0.5 block text-[13px] leading-snug text-ink-2">{p.que}</span>
+                </span>
+                <Pill tone="teal">{p.timbras}</Pill>
+              </button>
+
+              {activo && p.id === "intermediario" && (
+                <div className="space-y-2 pb-1 pl-[50px] pt-2.5">
+                  <p className="text-[13px] font-medium text-ink">¿La mueves con tu propio transporte?</p>
+                  <Segmented
+                    ariaLabel="Transporte propio"
+                    value={cp.transportePropio ? "si" : "no"}
+                    onChange={(v) => elegir("intermediario", { transportePropio: v === "si" })}
+                    options={[
+                      { value: "si", label: "Sí, con mi transporte" },
+                      { value: "no", label: "No, la mueve alguien más" },
+                    ]}
+                  />
+                </div>
+              )}
+              {activo && p.id === "blanco" && (
+                <div className="space-y-2 pb-1 pl-[50px] pt-2.5">
+                  <p className="text-[13px] font-medium text-ink">¿Qué comprobante vas a timbrar?</p>
+                  <Segmented
+                    ariaLabel="Tipo de comprobante"
+                    value={c.borrador.tipo === "T" ? "T" : "I"}
+                    onChange={(v) => elegir("blanco", { tipoEnBlanco: v as "I" | "T" })}
+                    options={[
+                      { value: "I", label: "Ingreso con carta porte" },
+                      { value: "T", label: "Traslado" },
+                    ]}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-3 rounded-xl border border-line-2 bg-surface-2 p-4 text-[13px] sm:grid-cols-2">
+        <div>
+          <p className="text-[12px] text-ink-3">Qué se cobra</p>
+          <p className="mt-0.5 text-ink">
+            {ingreso ? "El flete, con sus impuestos, a quien te paga el viaje." : "Nada: un traslado vale $0 y el receptor es tu propia empresa."}
+          </p>
+        </div>
+        <div>
+          <p className="text-[12px] text-ink-3">Figuras que te vamos a pedir</p>
+          <p className="mt-0.5 text-ink">{figuras}</p>
+        </div>
+        {cp.papel === "intermediario" && (
+          <p className="text-ink-2 sm:col-span-2">
+            Al timbrar el traslado te ofrecemos hacer la factura de tu servicio de intermediación, con tu cliente como receptor, sin
+            salir de aquí.
+          </p>
+        )}
       </div>
     </div>
   );

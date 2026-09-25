@@ -94,7 +94,7 @@ export const EMITIR = [
   { href: "/facturas/nueva?tipo=I", label: "Factura", detalle: "Ingreso con conceptos e impuestos" },
   { href: "/facturas/nueva?tipo=P", label: "Complemento de pago", detalle: "Cuando te pagan una PPD" },
   { href: "/facturas/nueva?tipo=E", label: "Nota de crédito", detalle: "Devoluciones y descuentos" },
-  { href: "/facturas/nueva?tipo=T", label: "Traslado con carta porte", detalle: "Mueves mercancía propia" },
+  { href: "/facturas/nueva?tipo=T", label: "Carta porte", detalle: "Traslado o flete: te guiamos según tu papel" },
   { href: "/facturas/nomina", label: "Recibo de nómina", detalle: "Se corre por periodo" },
   {
     href: "/facturas/nueva?tipo=I&modo=plantilla",

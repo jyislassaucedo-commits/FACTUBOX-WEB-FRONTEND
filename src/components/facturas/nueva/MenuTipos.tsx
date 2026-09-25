@@ -69,19 +69,11 @@ const OPCIONES: Opcion[] = [
   },
   {
     clave: "T",
-    nombre: "Traslado con carta porte",
-    descripcion: "Ampara mercancía propia en tránsito, sin venta de por medio.",
-    ejemplo: "Mueves inventario a otra sucursal.",
+    nombre: "Carta porte",
+    descripcion: "Para mover mercancía. Primero te preguntamos tu papel en el viaje y con eso sabemos qué timbrar.",
+    ejemplo: "Llevas inventario a otra sucursal, o le cobras un flete a un cliente.",
     icono: "traslado",
     accion: { tipo: "comprobante", valor: "T" },
-  },
-  {
-    clave: "ICP",
-    nombre: "Factura con carta porte",
-    descripcion: "Cobras el flete: la factura de ingreso lleva la carta porte del viaje.",
-    ejemplo: "Transportaste la carga de un cliente y le cobras el servicio.",
-    icono: "flete",
-    accion: { tipo: "comprobante", valor: "I", cartaPorte: true },
   },
 ];
 

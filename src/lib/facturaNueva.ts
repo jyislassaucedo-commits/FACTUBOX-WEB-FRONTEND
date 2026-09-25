@@ -26,7 +26,7 @@ import {
   totalesLocales,
   type ComplementosBorrador,
 } from "@/lib/complementos";
-import { cartaPorteNueva, type CartaPorteBorrador } from "@/lib/cartaPorte/borrador";
+import { cartaPorteNueva, type CartaPorteBorrador, type PapelCP } from "@/lib/cartaPorte/borrador";
 import { problemasCartaPorte, SIN_PROBLEMAS_CP } from "@/lib/cartaPorte/validar";
 
 export const RFC_PUBLICO_GENERAL = RECEPTOR_PUBLICO_GENERAL.Rfc;
@@ -282,7 +282,10 @@ export function borradorPara(
     relacion: { tipoRelacion: tipo === "E" ? "01" : "04", uuids: [] },
     usoCfdi: tipo === "E" ? "G02" : BORRADOR_INICIAL.usoCfdi,
     ...traslado,
-    cartaPorte: tipo === "T" || (tipo === "I" && conCartaPorte) ? cartaPorteNueva() : null,
+    cartaPorte:
+      tipo === "T" || (tipo === "I" && conCartaPorte)
+        ? { ...cartaPorteNueva(), papel: tipo === "T" ? "duenio" : "transportista" }
+        : null,
   };
 }
 
@@ -322,6 +325,7 @@ export type PasoId =
   | "relacion"
   | "complementos"
   | "pagos"
+  | "cpPapel"
   | "cpGeneral"
   | "cpTransporte"
   | "cpFiguras"
@@ -350,6 +354,14 @@ const REVISION: Paso = {
   titulo: "Revisar y timbrar",
   pregunta: "Revisa y timbra",
   porque: "Así se va a timbrar. Cualquier dato lo puedes cambiar desde aquí.",
+};
+
+/** Primero de toda carta porte: de él depende qué se timbra y qué pasos siguen. */
+const PASO_PAPEL: Paso = {
+  id: "cpPapel",
+  titulo: "Tu papel",
+  pregunta: "¿Cuál es tu papel en este viaje?",
+  porque: "Con esto decidimos qué se timbra y qué pasos siguen. A la derecha ves cómo va quedando.",
 };
 
 /** Los pasos de la carta porte, en el orden del escritorio (transporte, figuras, ubicaciones, mercancías). */
@@ -485,9 +497,52 @@ export const PASOS_POR_TIPO: Record<TipoComprobante, Paso[]> = {
  */
 export function pasosPara(tipo: TipoComprobante, conCartaPorte = false): Paso[] {
   const pasos = PASOS_POR_TIPO[tipo];
+  if (tipo === "T") return [PASO_PAPEL, ...pasos];
   if (tipo !== "I" || !conCartaPorte) return pasos;
   const i = pasos.findIndex((p) => p.id === "pago");
-  return [...pasos.slice(0, i + 1), ...PASOS_CARTA_PORTE, ...pasos.slice(i + 1)];
+  return [PASO_PAPEL, ...pasos.slice(0, i + 1), ...PASOS_CARTA_PORTE, ...pasos.slice(i + 1)];
+}
+
+/** Qué se timbra según el papel. En blanco lo elige el usuario (ingreso por omisión). */
+export function tipoDePapel(papel: PapelCP, tipoEnBlanco: TipoComprobante = "I"): TipoComprobante {
+  if (papel === "transportista") return "I";
+  if (papel === "blanco") return tipoEnBlanco;
+  return "T";
+}
+
+/**
+ * Los cambios al borrador al elegir otro papel (o, en blanco, otro tipo). Lo
+ * capturado del viaje se queda; lo que no aplica al nuevo tipo se ajusta como
+ * lo haría borradorPara: un traslado no cobra ni tiene receptor propio.
+ */
+export function cambiosPorPapel(
+  b: FacturaBorrador,
+  papel: PapelCP,
+  extra: { tipoEnBlanco?: TipoComprobante; transportePropio?: boolean } = {}
+): Partial<FacturaBorrador> {
+  if (!b.cartaPorte) return {};
+  const tipo = tipoDePapel(papel, extra.tipoEnBlanco ?? (papel === "blanco" ? b.tipo : "I"));
+  const cartaPorte = {
+    ...b.cartaPorte,
+    papel,
+    transportePropio: extra.transportePropio ?? b.cartaPorte.transportePropio,
+  };
+  if (tipo === b.tipo) return { cartaPorte };
+  const base = borradorPara(tipo, { rfcEmisor: b.rfcEmisor }, true);
+  return {
+    tipo,
+    cartaPorte,
+    serie: "",
+    folio: "",
+    moneda: base.moneda,
+    tipoCambio: "",
+    formaPago: base.formaPago,
+    metodoPago: base.metodoPago,
+    usoCfdi: base.usoCfdi,
+    receptorRfc: base.receptorRfc,
+    conceptos: base.conceptos,
+    relacion: base.relacion,
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -782,6 +837,8 @@ export function validar(
 
   return {
     ...cp,
+    // El papel siempre tiene un valor: no hay nada que falte.
+    cpPapel: [],
     emisor: emisorP,
     origen: origenP,
     receptor: receptorP,

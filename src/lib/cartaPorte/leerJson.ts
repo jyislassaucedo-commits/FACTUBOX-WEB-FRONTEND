@@ -511,6 +511,8 @@ export function borradorDesdeCfdi(cfdi: Nodo, { rfcEmisor, duplicar = false }: {
   let cartaPorte: CartaPorteBorrador | null = null;
   if (conCartaPorte) {
     cartaPorte = cartaPorteDesdeJson(nodoCp, tipo === "T" ? conceptosJson : [], avisos);
+    // El papel no viaja en el CFDI: un traslado es del dueño (o intermediario), una factura, del transportista.
+    cartaPorte = { ...cartaPorte, papel: tipo === "T" ? "duenio" : "transportista" };
     if (duplicar) {
       cartaPorte = {
         ...cartaPorte,

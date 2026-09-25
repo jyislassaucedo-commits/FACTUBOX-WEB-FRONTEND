@@ -42,6 +42,8 @@ import { IconoTipo, MenuTipos } from "./nueva/MenuTipos";
 import {
   PasoCpFiguras,
   PasoCpGeneral,
+  PasoCpPapel,
+  nombrePapel,
   PasoCpMercancias,
   PasoCpTransporte,
   PasoCpUbicaciones,
@@ -168,7 +170,8 @@ export function NuevaFacturaWizard({
   /** Sin tipo decidido se empieza en el menú; con atajo, directo al primer paso. */
   const [enMenu, setEnMenu] = useState(!abierta && tipoDeEntrada === null && modoInicial !== "plantilla");
   const [modo, setModo] = useState<ModoCaptura>(modoInicial ?? "una");
-  const [pasoActual, setPasoActual] = useState<PasoId>("emisor");
+  // Toda carta porte empieza por "Tu papel": de él depende qué se timbra.
+  const [pasoActual, setPasoActual] = useState<PasoId>(() => (borrador.cartaPorte ? "cpPapel" : "emisor"));
   /** Pasos que el usuario ya dejó atrás: el riel los pinta en verde o con "!". */
   // Una prefactura abierta ya tiene sus pasos llenos: el riel deja ir a cualquiera.
   const [visitados, setVisitados] = useState<PasoId[]>(() =>
@@ -581,6 +584,14 @@ export function NuevaFacturaWizard({
             .join(" · "),
         };
       }
+      case "cpPapel": {
+        const cp = b.cartaPorte;
+        if (!cp) return { valor: "" };
+        return {
+          valor: nombrePapel(cp.papel),
+          detalle: b.tipo === "T" ? "Traslado" : "Factura de ingreso",
+        };
+      }
       case "cpGeneral": {
         const cp = b.cartaPorte;
         if (!cp) return { valor: "" };
@@ -680,7 +691,7 @@ export function NuevaFacturaWizard({
     setBorrador((prev) => borradorPara(tipo, { rfcEmisor: prev.rfcEmisor }, cartaPorte));
     setModo("una");
     setEnMenu(false);
-    setPasoActual("emisor");
+    setPasoActual(tipo === "T" || cartaPorte ? "cpPapel" : "emisor");
     setVisitados([]);
     setIntentados([]);
     setErrorEnvio(null);
@@ -787,6 +798,24 @@ export function NuevaFacturaWizard({
     );
   }
 
+  /** Después del traslado del intermediario: la factura de su servicio, con el concepto ya descrito. */
+  function facturaDelServicio() {
+    const origen = borrador.serie && borrador.folio ? ` ${borrador.serie}-${borrador.folio}` : "";
+    nuevaPrefactura();
+    setEmitidos(null);
+    setErrorEnvio(null);
+    setVisitados([]);
+    setIntentados([]);
+    setEditorPago(null);
+    setBorrador((prev) => {
+      const b = borradorPara("I", { rfcEmisor: prev.rfcEmisor });
+      return { ...b, conceptos: [{ ...b.conceptos[0], descripcion: `Servicio de intermediación del traslado${origen}` }] };
+    });
+    setPasoActual("emisor");
+    setEnMenu(false);
+    window.scrollTo({ top: 0 });
+  }
+
   function otroComprobante() {
     nuevaPrefactura();
     setEmitidos(null);
@@ -825,6 +854,15 @@ export function NuevaFacturaWizard({
         uuid={unico.UUID}
         fechaTimbrado={unico.FechaTimbrado}
         onOtra={otroComprobante}
+        siguiente={
+          borrador.tipo === "T" && borrador.cartaPorte?.papel === "intermediario"
+            ? {
+                texto: "Como intermediario, tu servicio se cobra aparte con una factura de ingreso a tu cliente.",
+                boton: "Hacer la factura de mi servicio",
+                onClick: facturaDelServicio,
+              }
+            : undefined
+        }
       />
     ) : (
       <ResultadoComplementos
@@ -958,6 +996,7 @@ export function NuevaFacturaWizard({
             )}
             {pasoActual === "complementos" && <PasoComplementos {...comun} />}
             {pasoActual === "pagos" && <PasoPagos {...comun} editor={editorPago} onEditor={setEditorPago} />}
+            {conCartaPorte && pasoActual === "cpPapel" && <PasoCpPapel {...comun} />}
             {conCartaPorte && pasoActual === "cpGeneral" && <PasoCpGeneral {...comun} />}
             {conCartaPorte && pasoActual === "cpTransporte" && <PasoCpTransporte {...comun} />}
             {conCartaPorte && pasoActual === "cpFiguras" && <PasoCpFiguras {...comun} />}

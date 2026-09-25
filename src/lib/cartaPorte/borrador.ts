@@ -67,8 +67,19 @@ export type MercanciaViaje = MercanciaCP & {
   detalle: DetalleMercancia | null;
 };
 
+/**
+ * El papel de quien hace la carta porte en el viaje (frmInicioCartaPorte del
+ * escritorio). Decide qué se timbra: el dueño y el intermediario, un traslado;
+ * el transportista, una factura de ingreso por el flete; "en blanco", lo que
+ * elija el usuario. No va al SAT: se deduce del tipo al abrir una prefactura.
+ */
+export type PapelCP = "duenio" | "transportista" | "intermediario" | "blanco";
+
 export type CartaPorteBorrador = {
   version: "3.1";
+  papel: PapelCP;
+  /** Solo del intermediario: mueve la mercancía con su propio transporte. */
+  transportePropio: boolean;
   idCCP: string;
   transpInternac: "Sí" | "No";
   entradaSalidaMerc: "" | "Entrada" | "Salida";
@@ -107,6 +118,8 @@ export function generarIdCCP(): string {
 export function cartaPorteNueva(): CartaPorteBorrador {
   return {
     version: "3.1",
+    papel: "duenio",
+    transportePropio: true,
     idCCP: generarIdCCP(),
     transpInternac: "No",
     entradaSalidaMerc: "",

@@ -20,12 +20,15 @@ export function ResultadoTimbrado({
   uuid,
   fechaTimbrado,
   onOtra,
+  siguiente,
 }: {
   /** Ej. "Factura timbrada", "Nota de crédito timbrada". */
   titulo: string;
   uuid: string;
   fechaTimbrado: string;
   onOtra: () => void;
+  /** Lo que conviene hacer después (p. ej. la factura del servicio del intermediario). */
+  siguiente?: { texto: string; boton: string; onClick: () => void };
 }) {
   return (
     <Card className="mx-auto max-w-xl">
@@ -38,11 +41,19 @@ export function ResultadoTimbrado({
         </span>
         <h2 className="mt-3 text-lg font-bold tracking-tight text-ink">{titulo}</h2>
         <p className="mt-1 text-[13px] text-ink-3">
-          Ya quedó registrada ante el SAT el {fechaHora(fechaTimbrado)}.
+          Ya quedó registrada ante el SAT el {fechaHora(fechaTimbrado).replace(/.$/, "")}.
         </p>
         <p className="mt-4 break-all rounded-lg border border-line bg-surface-2 p-3 font-mono text-[12px] text-ink">
           {uuid}
         </p>
+        {siguiente && (
+          <div className="mt-4 rounded-xl border border-brand bg-brand-050 p-3.5 text-left text-[13px] text-ink">
+            <p>{siguiente.texto}</p>
+            <button type="button" onClick={siguiente.onClick} className={buttonClass("primary", "md", "mt-2.5")}>
+              {siguiente.boton}
+            </button>
+          </div>
+        )}
         <div className="mt-4 flex flex-wrap justify-center gap-2">
           <Link href="/facturas" className={buttonClass("secondary")}>
             Ver mis facturas
