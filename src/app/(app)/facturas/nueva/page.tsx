@@ -5,6 +5,7 @@ import { NuevaFacturaWizard } from "@/components/facturas/NuevaFacturaWizard";
 import { getEmisores } from "@/lib/emisores";
 import { emisorEstaActivo } from "@/lib/emisoresShared";
 import { getTimbres } from "@/lib/timbres";
+import { claveLocal, generarIdCCP } from "@/lib/cartaPorte/borrador";
 
 /**
  * Los emisores se cargan en el servidor: son lo primero que necesita el
@@ -42,6 +43,10 @@ export default async function NuevaFacturaPage({
   // getEmisores(), las facturas de un emisor desactivado se volverían
   // invisibles en el historial, que es justo lo que no debe pasar.
   const emisores = todos.filter((e) => emisorEstaActivo(e.Estatus));
+
+  // Las claves aleatorias del primer borrador salen de aquí: si las generara el
+  // asistente, el servidor y el navegador pintarían un IdCCP distinto.
+  const claves = { uuidLocal: claveLocal(), idCCP: generarIdCCP() };
 
   return (
     <div className="space-y-5">
@@ -90,6 +95,7 @@ export default async function NuevaFacturaPage({
           origenUuid={origenUuid}
           tipoInicial={tipoInicial}
           modoInicial={modoInicial}
+          claves={claves}
         />
       )}
     </div>

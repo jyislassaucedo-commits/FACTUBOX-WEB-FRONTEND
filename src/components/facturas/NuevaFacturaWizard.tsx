@@ -133,6 +133,7 @@ export function NuevaFacturaWizard({
   origenUuid,
   tipoInicial,
   modoInicial,
+  claves,
 }: {
   emisores: Emisor[];
   timbres: Timbres | null;
@@ -142,6 +143,8 @@ export function NuevaFacturaWizard({
   /** Atajos del menú de Facturas: entran directo a un tipo, sin pasar por el menú. */
   tipoInicial?: TipoComprobante;
   modoInicial?: ModoCaptura;
+  /** Claves aleatorias del primer borrador, generadas en el servidor para que la hidratación coincida. */
+  claves?: { uuidLocal: string; idCCP: string };
 }) {
   const toast = useToast();
 
@@ -149,11 +152,14 @@ export function NuevaFacturaWizard({
   const tipoDeEntrada: TipoComprobante | null =
     emisorOrigenValido && origenUuid ? "P" : (tipoInicial ?? null);
 
-  const [borrador, setBorrador] = useState<FacturaBorrador>(() =>
-    borradorPara(tipoDeEntrada ?? "I", {
+  const [borrador, setBorrador] = useState<FacturaBorrador>(() => {
+    const inicial = borradorPara(tipoDeEntrada ?? "I", {
       rfcEmisor: emisorOrigenValido ? origenRfc! : (emisores[0]?.Rfc ?? ""),
-    })
-  );
+    });
+    return inicial.cartaPorte && claves
+      ? { ...inicial, cartaPorte: { ...inicial.cartaPorte, idCCP: claves.idCCP } }
+      : inicial;
+  });
   /** Sin tipo decidido se empieza en el menú; con atajo, directo al primer paso. */
   const [enMenu, setEnMenu] = useState(tipoDeEntrada === null && modoInicial !== "plantilla");
   const [modo, setModo] = useState<ModoCaptura>(modoInicial ?? "una");
@@ -203,7 +209,7 @@ export function NuevaFacturaWizard({
      "Guardar"), como las prefacturas del escritorio: el mismo JSON del CFDI.
      Se reconoce por uuidLocal; nunca van dos guardados a la vez y no se manda
      si no cambió nada desde el último. */
-  const [uuidLocal, setUuidLocal] = useState(() => claveLocal());
+  const [uuidLocal, setUuidLocal] = useState(() => claves?.uuidLocal ?? claveLocal());
   const [nube, setNube] = useState<{ estado: "guardando" | "guardada" | "error"; hora?: string; mensaje?: string; id?: number } | null>(null);
   const ultimaGuardada = useRef<string | null>(null);
   const guardandoNube = useRef(false);
@@ -502,7 +508,7 @@ export function NuevaFacturaWizard({
           detalle: [
             b.serie && b.folio ? `Serie ${b.serie}, folio ${b.folio}` : "Sin serie",
             b.tipo !== "P" && (b.fechaActual ? "fecha de hoy" : b.fechaEmision.replace("T", " ")),
-            b.tipo !== "P" && b.moneda + (b.moneda !== "MXN" ? ` a ${b.tipoCambio || "—"}` : ""),
+            b.tipo !== "P" && b.tipo !== "T" && b.moneda +(b.moneda !== "MXN" ? ` a ${b.tipoCambio || "—"}` : ""),
             b.tipo !== "P" && `exportación ${b.exportacion}`,
           ]
             .filter(Boolean)
@@ -536,7 +542,13 @@ export function NuevaFacturaWizard({
           : { valor: "No se relaciona" };
       case "complementos": {
         const lista = activos(b.complementos);
-        return { valor: lista.length ? lista.map((c) => c.nombre).join(", ") : "Ninguno" };
+        return {
+          valor: lista.length
+            ? lista.map((c) => c.nombre).join(", ")
+            : b.cartaPorte
+              ? "Solo la carta porte"
+              : "Ninguno",
+        };
       }
       case "origen":
         return {
